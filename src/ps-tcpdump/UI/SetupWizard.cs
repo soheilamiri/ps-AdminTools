@@ -63,7 +63,6 @@ public static class SetupWizard
         options.DestinationIp = PromptOptionalIp("  Destination IP address (Enter to skip)");
         options.LocalPort = PromptOptionalPort("  Port (src or dst)      (Enter to skip)");
 
-
         // ── Summary ────────────────────────────────────────────────────────
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.Green;
@@ -75,7 +74,7 @@ public static class SetupWizard
         Console.WriteLine($"  Interface : {options.InterfaceDescription}");
         Console.WriteLine($"  Source IP : {options.SourceIp ?? "any"}");
         Console.WriteLine($"  Dest IP   : {options.DestinationIp ?? "any"}");
-        Console.WriteLine($"  Port      : {(options.LocalPort.HasValue ? options.LocalPort.ToString() : "any")}");
+        Console.WriteLine($"  Port      : {(options.LocalPort.HasValue ? $"{options.LocalPort} (src or dst)" : "any")}");
 
         var bpf = options.BuildBpfFilter();
         if (!string.IsNullOrEmpty(bpf))
@@ -87,12 +86,87 @@ public static class SetupWizard
 
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.Write("  Press any key to start capture");
+        Console.Write("  Press any key to continue");
         Console.ResetColor();
-        Console.Write(" (Ctrl+C to exit at any time)...");
+        Console.Write("...");
         Console.ReadKey(true);
 
         return options;
+    }
+
+    public static (bool save, string? path) PromptSaveOption()
+    {
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ┌─────────────────────────────────────────────────────┐");
+        Console.WriteLine("  │                 SAVE CAPTURE FILE                   │");
+        Console.WriteLine("  └─────────────────────────────────────────────────────┘");
+        Console.ResetColor();
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Save capture to .pcap file? [y/N]: ");
+        Console.ResetColor();
+
+        var answer = Console.ReadLine()?.Trim().ToLower();
+        if (answer != "y" && answer != "yes")
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  Skipping file save.");
+            Console.ResetColor();
+            return (false, null);
+        }
+
+        // ── Ask for path ───────────────────────────────────────────────────
+        var defaultDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "ps-tcpdump");
+        var defaultName = $"capture_{DateTime.Now:yyyyMMdd_HHmmss}.pcap";
+
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  Default folder : {defaultDir}");
+        Console.WriteLine($"  Default name   : {defaultName}");
+        Console.ResetColor();
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Save folder (Enter for default): ");
+        Console.ResetColor();
+        var folderInput = Console.ReadLine()?.Trim();
+        var folder = string.IsNullOrEmpty(folderInput) ? defaultDir : folderInput;
+
+        while (true)
+        {
+            try { Directory.CreateDirectory(folder); break; }
+            catch
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("  Invalid folder. Try again or press Enter for default.");
+                Console.ResetColor();
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write("  Save folder (Enter for default): ");
+                Console.ResetColor();
+                folderInput = Console.ReadLine()?.Trim();
+                folder = string.IsNullOrEmpty(folderInput) ? defaultDir : folderInput;
+            }
+        }
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  File name   (Enter for default): ");
+        Console.ResetColor();
+        var nameInput = Console.ReadLine()?.Trim();
+        var fileName = string.IsNullOrEmpty(nameInput) ? defaultName : nameInput;
+
+        if (!fileName.EndsWith(".pcap", StringComparison.OrdinalIgnoreCase))
+            fileName += ".pcap";
+
+        var fullPath = Path.Combine(folder, fileName);
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  Output file  : {fullPath}");
+        Console.ResetColor();
+
+        return (true, fullPath);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
@@ -162,69 +236,4 @@ public static class SetupWizard
             Console.ResetColor();
         }
     }
-    public static string PromptSavePath()
-{
-    var defaultDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ps-tcpdump");
-    var defaultName = $"capture_{DateTime.Now:yyyyMMdd_HHmmss}.pcap";
-
-    Console.WriteLine();
-    Console.ForegroundColor = ConsoleColor.Cyan;
-    Console.WriteLine("  ┌─────────────────────────────────────────────────────┐");
-    Console.WriteLine("  │                 SAVE CAPTURE FILE                   │");
-    Console.WriteLine("  └─────────────────────────────────────────────────────┘");
-    Console.ResetColor();
-    Console.WriteLine();
-    Console.ForegroundColor = ConsoleColor.DarkGray;
-    Console.WriteLine($"  Default folder : {defaultDir}");
-    Console.WriteLine($"  Default name   : {defaultName}");
-    Console.ResetColor();
-    Console.WriteLine();
-
-    // ── Folder ─────────────────────────────────────────────────────────────
-    Console.ForegroundColor = ConsoleColor.White;
-    Console.Write("  Save folder (Enter for default): ");
-    Console.ResetColor();
-    var folderInput = Console.ReadLine()?.Trim();
-    var folder = string.IsNullOrEmpty(folderInput) ? defaultDir : folderInput;
-
-    // validate/create folder
-    while (true)
-    {
-        try
-        {
-            Directory.CreateDirectory(folder);
-            break;
-        }
-        catch
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"  Invalid folder path. Try again or press Enter for default.");
-            Console.ResetColor();
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("  Save folder (Enter for default): ");
-            Console.ResetColor();
-            folderInput = Console.ReadLine()?.Trim();
-            folder = string.IsNullOrEmpty(folderInput) ? defaultDir : folderInput;
-        }
-    }
-
-    // ── File name ──────────────────────────────────────────────────────────
-    Console.ForegroundColor = ConsoleColor.White;
-    Console.Write("  File name   (Enter for default): ");
-    Console.ResetColor();
-    var nameInput = Console.ReadLine()?.Trim();
-    var fileName = string.IsNullOrEmpty(nameInput) ? defaultName : nameInput;
-
-    // ensure .pcap extension
-    if (!fileName.EndsWith(".pcap", StringComparison.OrdinalIgnoreCase))
-        fileName += ".pcap";
-
-    var fullPath = Path.Combine(folder, fileName);
-
-    Console.ForegroundColor = ConsoleColor.Green;
-    Console.WriteLine($"  Output file  : {fullPath}");
-    Console.ResetColor();
-
-    return fullPath;
-}
 }
