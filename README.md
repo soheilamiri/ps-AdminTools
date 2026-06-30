@@ -44,6 +44,9 @@ Start-BwMon
 # Capture packets interactively
 Start-TcpDump
 ```
+<img width="774" height="315" alt="image" src="https://github.com/user-attachments/assets/36c1abaf-06f3-4490-a2c5-618bb9d2fba4" />
+
+<img width="822" height="345" alt="image" src="https://github.com/user-attachments/assets/f8dd25b5-baf5-40e5-924d-9ac5ffe12336" />
 
 ## Project structure
 ```
