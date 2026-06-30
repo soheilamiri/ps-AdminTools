@@ -16,6 +16,14 @@ Built with C# .NET 10 and Npcap for deep packet inspection.
 - Windows 10/11 or Windows Server 2019/2022/2025
 - PowerShell 7.0+
 - [Npcap](https://npcap.com/#download) 1.00+ (install with WinPcap API-compatible mode)
+  how install npcap via CLI:
+  $npcapUrl = "https://npcap.com/dist/npcap-1.80.exe"
+  $installer = "$env:TEMP\npcap-installer.exe"
+
+Invoke-WebRequest -Uri $npcapUrl -OutFile $installer
+
+Start-Process -FilePath $installer -ArgumentList "/S" -Wait -Verb RunAs
+
 - .NET 10 runtime
 
 ## Installation
