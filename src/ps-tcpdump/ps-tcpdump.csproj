@@ -13,7 +13,6 @@
   <ItemGroup>
     <PackageReference Include="SharpPcap" Version="6.*" />
     <PackageReference Include="PacketDotNet" Version="1.*" />
-    <PackageReference Include="System.Management.Automation" Version="7.4.6" />
   </ItemGroup>
 
 </Project>

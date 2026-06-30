@@ -32,7 +32,7 @@ if (-not [System.AppDomain]::CurrentDomain.GetData('SysAdminToolsResolver')) {
 }
 
 # ── Load DLLs in dependency order ─────────────────────────────────────────────
-foreach ($dll in @('PacketDotNet.dll', 'SharpPcap.dll', 'BandwidthMonitor.dll')) {
+foreach ($dll in @('PacketDotNet.dll', 'SharpPcap.dll', 'BandwidthMonitor.dll', 'ps-tcpdump.dll')) {
     $fullPath = [System.IO.Path]::Combine($BinPath, $dll)
     if (-not [System.IO.File]::Exists($fullPath)) {
         throw "Missing required DLL: $fullPath"
@@ -41,7 +41,7 @@ foreach ($dll in @('PacketDotNet.dll', 'SharpPcap.dll', 'BandwidthMonitor.dll'))
     Write-Verbose "Loaded: $fullPath"
 }
 
-# ── Verify type loaded correctly ──────────────────────────────────────────────
+# ── Verify BwMonitor type loaded correctly ─────────────────────────────────────
 $script:BwMonitorType = $null
 foreach ($asm in [System.AppDomain]::CurrentDomain.GetAssemblies()) {
     if ($asm.GetName().Name -eq 'BandwidthMonitor') {
@@ -55,12 +55,32 @@ foreach ($asm in [System.AppDomain]::CurrentDomain.GetAssemblies()) {
 }
 
 if (-not $script:BwMonitorType) {
-    # Dump what actually loaded for diagnosis
     Write-Warning "Could not resolve BandwidthMonitor.BwMonitor. Loaded assemblies:"
     [System.AppDomain]::CurrentDomain.GetAssemblies() |
         Where-Object { -not $_.IsDynamic } |
         ForEach-Object { Write-Warning "  $($_.GetName().Name)  →  $($_.Location)" }
     throw "Failed to load BandwidthMonitor type."
+}
+
+# ── Verify TcpDumpRunner type loaded correctly ─────────────────────────────────
+$script:TcpDumpType = $null
+foreach ($asm in [System.AppDomain]::CurrentDomain.GetAssemblies()) {
+    if ($asm.GetName().Name -eq 'ps-tcpdump') {
+        $t = $asm.GetType('PsTcpDump.TcpDumpRunner')
+        if ($t) {
+            $script:TcpDumpType = $t
+            Write-Verbose "Type resolved: $($t.FullName)"
+            break
+        }
+    }
+}
+
+if (-not $script:TcpDumpType) {
+    Write-Warning "Could not resolve PsTcpDump.TcpDumpRunner. Loaded assemblies:"
+    [System.AppDomain]::CurrentDomain.GetAssemblies() |
+        Where-Object { -not $_.IsDynamic } |
+        ForEach-Object { Write-Warning "  $($_.GetName().Name)  →  $($_.Location)" }
+    throw "Failed to load PsTcpDump.TcpDumpRunner type."
 }
 
 # ── Start-BwMon ───────────────────────────────────────────────────────────────
@@ -119,4 +139,48 @@ function Start-BwMon {
     }
 }
 
-Export-ModuleMember -Function 'Start-BwMon'
+# ── Start-TcpDump ─────────────────────────────────────────────────────────────
+function Start-TcpDump {
+    <#
+    .SYNOPSIS
+        Interactive packet capture tool, like tcpdump for Windows.
+
+    .DESCRIPTION
+        Captures live network packets using Npcap with an interactive setup
+        wizard for interface selection and optional filters (source IP,
+        destination IP, port). Output is color-coded by protocol and can
+        optionally be saved to a Wireshark-compatible .pcap file.
+
+    .EXAMPLE
+        Start-TcpDump
+
+    .NOTES
+        Ctrl+C stops the capture and shows a summary without closing your terminal.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if (-not $IsWindows) {
+        Write-Error "Start-TcpDump requires Windows."
+        return
+    }
+
+    if (-not $script:TcpDumpType) {
+        Write-Error "PsTcpDump.TcpDumpRunner type not loaded. Try: Import-Module ps-admintools -Force"
+        return
+    }
+
+    try {
+        $script:TcpDumpType.GetMethod('Start').Invoke($null, $null)
+    }
+    catch {
+        $msg = if ($_.Exception.InnerException) {
+            $_.Exception.InnerException.Message
+        } else {
+            $_.Exception.Message
+        }
+        Write-Error "TcpDump error: $msg"
+    }
+}
+
+Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump'
