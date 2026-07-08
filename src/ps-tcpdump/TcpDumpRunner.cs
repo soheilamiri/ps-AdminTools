@@ -17,14 +17,14 @@ public static class TcpDumpRunner
         // ── Setup Wizard ──────────────────────────────────────────────────
         var filterOptions = UI.SetupWizard.Run();
 
-        // ── Pcap output file ─────────────────────────────────────────────
+        // ── Pcap output file ──────────────────────────────────────────────
         var (savePcap, pcapPath) = UI.SetupWizard.PromptSaveOption();
         var pcapWriter = savePcap ? new PcapWriter(pcapPath!) : null;
 
-        // ── Capture Engine ───────────────────────────────────────────────
+        // ── Capture Engine ────────────────────────────────────────────────
         var engine = new CaptureEngine(filterOptions);
 
-        // ── Print header ─────────────────────────────────────────────────
+        // ── Print header ──────────────────────────────────────────────────
         Console.Clear();
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine($"  Interface : {filterOptions.InterfaceDescription}");
@@ -32,11 +32,13 @@ public static class TcpDumpRunner
         Console.WriteLine($"  Saving to : {(savePcap && pcapPath != null ? pcapPath : "disabled")}");
         Console.ResetColor();
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"  {"Time",-15} {"Proto",-6} {"Src IP",-15} {"SrcPort",-8} {"Dst IP",-15} {"DstPort",-8} Info");
-        Console.WriteLine($"  {"────",-15} {"─────",-6} {"──────",-15} {"───────",-8} {"──────",-15} {"───────",-8} ────");
+        Console.WriteLine(
+    $"  {"Time",-15} {"Proto",-7} {"Src MAC",-19} {"Src IP",-16} {"SrcPort",-8} {"Dst MAC",-19} {"Dst IP",-16} {"DstPort",-8} Info");
+Console.WriteLine(
+    $"  {"────",-15} {"─────",-7} {"───────",-19} {"──────",-16} {"───────",-8} {"───────",-19} {"──────",-16} {"───────",-8} ────");
         Console.ResetColor();
 
-        // ── Wire up packet output ────────────────────────────────────────
+        // ── Wire up packet output ─────────────────────────────────────────
         engine.PacketCaptured += (pkt) =>
         {
             pcapWriter?.WritePacket(pkt);
@@ -45,8 +47,8 @@ public static class TcpDumpRunner
             var dstPort = pkt.DestinationPort.HasValue ? $":{pkt.DestinationPort}" : "";
 
             Console.ForegroundColor = GetProtocolColor(pkt.Protocol);
-            Console.WriteLine($"  {pkt.Timestamp:HH:mm:ss.fff}   {pkt.Protocol,-6} {pkt.SourceIp,-15} {srcPort,-8} {pkt.DestinationIp,-15} {dstPort,-8} {pkt.Info}");
-            Console.ResetColor();
+            Console.WriteLine(
+    $"  {pkt.Timestamp:HH:mm:ss.fff}   {pkt.Protocol,-7} {pkt.SrcMac,-19} {pkt.SourceIp,-16} {srcPort,-8} {pkt.DstMac,-19} {pkt.DestinationIp,-16} {dstPort,-8} {pkt.Info}");            Console.ResetColor();
         };
 
         engine.ErrorOccurred += (err) =>
