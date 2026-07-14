@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<helpItems schema="maml" xmlns="http://msh">
+  <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10"
+                    xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10"
+                    xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+
+    <command:details>
+      <command:name>Test-Time</command:name>
+      <maml:description>
+        <maml:para>Compares a source time against one or more remote NTP servers and flags any that drift beyond an allowed offset.</maml:para>
+      </maml:description>
+      <maml:copyright>
+        <maml:para>SysAdminTools</maml:para>
+      </maml:copyright>
+      <command:verb>Test</command:verb>
+      <command:noun>Time</command:noun>
+      <dev:version>1.0.0</dev:version>
+    </command:details>
+
+    <maml:description>
+      <maml:para>
+        Test-Time queries a "source" (by default, the local machine's own clock; or, if -Source is
+        set to a hostname/IP, that address is queried as an NTP server too) and compares it against
+        one or more "remote" NTP servers supplied via -Remote.
+      </maml:para>
+      <maml:para>
+        For each remote server, Test-Time reports the source and remote timestamps side by side,
+        computes the drift between them in seconds, and raises a warning if that drift exceeds
+        -MaxOffset. Up to 5 remote servers can be checked in a single call. The whole comparison can
+        be repeated with -Retry, and -Output switches the cmdlet to a silent pass/fail mode suitable
+        for scripts and pipelines.
+      </maml:para>
+      <maml:para>
+        Test-Time queries NTP servers directly over UDP/123 using a built-in SNTP client. It has no
+        external dependencies and runs identically on Windows and Linux under PowerShell 7+.
+      </maml:para>
+    </maml:description>
+
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Test-Time</maml:name>
+        <command:parameter required="false" position="0" pipelineInput="false" globbing="false">
+          <maml:name>Source</maml:name>
+          <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="1" pipelineInput="false" globbing="false">
+          <maml:name>Remote</maml:name>
+          <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>MaxOffset</maml:name>
+          <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>Retry</maml:name>
+          <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>Output</maml:name>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+
+    <command:parameters>
+      <command:parameter required="false" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Source</maml:name>
+        <maml:description>
+          <maml:para>
+            The baseline time to compare against. If omitted, the local machine's own system clock
+            is used. If set to an NTP server hostname or IP address, that server is queried the same
+            way -Remote servers are, so you can compare two NTP servers against each other instead
+            of using the local clock at all.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+        <dev:defaultValue>Local machine clock</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="true" position="1" pipelineInput="false" globbing="false">
+        <maml:name>Remote</maml:name>
+        <maml:description>
+          <maml:para>
+            One or more NTP server hostnames or IP addresses to compare against -Source. Separate
+            multiple servers with commas (up to 5). Each server is queried and reported independently.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
+        <dev:type>
+          <maml:name>String[]</maml:name>
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>MaxOffset</maml:name>
+        <maml:description>
+          <maml:para>
+            The maximum allowed drift, in seconds, between -Source and each -Remote server before a
+            warning is raised for that server.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>60</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Retry</maml:name>
+        <maml:description>
+          <maml:para>
+            Number of times (1-10) to repeat the entire source/remote comparison, with a fixed
+            2-second pause between attempts. Each attempt is reported separately.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>1</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Output</maml:name>
+        <maml:description>
+          <maml:para>
+            Suppresses the formatted report entirely. Instead, returns one $true/$false value per
+            remote server per attempt ($true = within -MaxOffset), for use in scripts and pipelines.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+        </dev:type>
+        <dev:defaultValue>False</dev:defaultValue>
+      </command:parameter>
+    </command:parameters>
+
+    <command:inputTypes>
+      <command:inputType>
+        <dev:type>
+          <maml:name>None</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>Test-Time does not accept pipeline input.</maml:para>
+        </maml:description>
+      </command:inputType>
+    </command:inputTypes>
+
+    <command:returnValues>
+      <command:returnValue>
+        <dev:type>
+          <maml:name>System.Boolean</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>
+            When -Output is used, Test-Time returns one Boolean per remote server per attempt.
+            Without -Output, results are written directly to the host and nothing is returned to
+            the pipeline.
+          </maml:para>
+        </maml:description>
+      </command:returnValue>
+    </command:returnValues>
+
+    <command:examples>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 1 --------------------------</maml:title>
+        <dev:code>Test-Time -Remote time.windows.com</dev:code>
+        <dev:remarks>
+          <maml:para>Compares the local machine's clock against time.windows.com using the default 60-second tolerance.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 2 --------------------------</maml:title>
+        <dev:code>Test-Time -Source 192.168.247.10 -Remote time.windows.com -MaxOffset 5</dev:code>
+        <dev:remarks>
+          <maml:para>Compares two NTP servers against each other (instead of the local clock) with a tight 5-second tolerance.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 3 --------------------------</maml:title>
+        <dev:code>Test-Time -Remote 192.168.247.10,192.168.247.11,time.windows.com -MaxOffset 110</dev:code>
+        <dev:remarks>
+          <maml:para>Checks the local clock against three remote NTP servers in a single call, each reported separately.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 4 --------------------------</maml:title>
+        <dev:code>Test-Time -Remote time.windows.com -MaxOffset 30 -Retry 3</dev:code>
+        <dev:remarks>
+          <maml:para>Repeats the comparison 3 times, 2 seconds apart, reporting each attempt.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 5 --------------------------</maml:title>
+        <dev:code>$ok = Test-Time -Remote 192.168.247.10,192.168.247.11 -Output
+if ($ok -contains $false) { Write-Warning "One or more NTP sources are out of tolerance" }</dev:code>
+        <dev:remarks>
+          <maml:para>Uses -Output for a silent scripted check, returning only Boolean pass/fail values with no report text.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+    </command:examples>
+
+  </command:command>
+</helpItems>

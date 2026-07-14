@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      netstandard2.0 is targeted (built with the .NET 10 SDK) rather than net10.0 directly.
+      This keeps the compiled cmdlet loadable across all current PowerShell 7.x releases
+      on Windows, Linux, and macOS. If you only ever intend to run this on PowerShell 7.6+
+      (paired with .NET 10), you can change TargetFramework to net10.0 and swap the
+      PackageReference below for Microsoft.PowerShell.SDK instead.
+    -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>NtpCheck</AssemblyName>
+    <RootNamespace>PSAdminTools.NtpCheck</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Company>PS-AdminTools</Company>
+    <Product>PS-AdminTools NtpCheck Module</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" />
+  </ItemGroup>
+
+</Project>
