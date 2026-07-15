@@ -183,4 +183,4 @@ function Start-TcpDump {
     }
 }
 
-Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump'
+Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump' -Cmdlet 'Test-Time', 'Get-NtpConf', 'Set-NtpConf'
