@@ -1,6 +1,6 @@
 @{
     # Module identity
-    ModuleVersion     = '1.2.1'
+    ModuleVersion     = '1.3.0'
     GUID              = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
     Author            = 'Soheil Darvishamiri'
     CompanyName       = 'SysAdminTools'
