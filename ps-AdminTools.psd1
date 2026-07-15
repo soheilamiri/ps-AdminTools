@@ -17,7 +17,7 @@
 
     # Exported commands
     FunctionsToExport = @('Start-BwMon', 'Start-TcpDump')
-    CmdletsToExport   = @('Test-Time')
+    CmdletsToExport = @('Test-Time', 'Get-NtpConf', 'Set-NtpConf')
     VariablesToExport = @()
     AliasesToExport   = @()
 

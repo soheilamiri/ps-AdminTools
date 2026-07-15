@@ -213,4 +213,232 @@ if ($ok -contains $false) { Write-Warning "One or more NTP sources are out of to
     </command:examples>
 
   </command:command>
+
+  <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10"
+                    xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10"
+                    xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+
+    <command:details>
+      <command:name>Get-NtpConf</command:name>
+      <maml:description>
+        <maml:para>Returns the local machine's current time, time zone, and active NTP reference as a structured object.</maml:para>
+      </maml:description>
+      <maml:copyright>
+        <maml:para>SysAdminTools</maml:para>
+      </maml:copyright>
+      <command:verb>Get</command:verb>
+      <command:noun>NtpConf</command:noun>
+      <dev:version>1.0.0</dev:version>
+    </command:details>
+
+    <maml:description>
+      <maml:para>
+        Get-NtpConf reads the local machine's current time, time zone, and currently active NTP
+        reference, auto-detecting the underlying time-sync mechanism: W32Time on Windows; chrony,
+        systemd-timesyncd, or ntpd (tried in that order) on Linux.
+      </maml:para>
+      <maml:para>
+        This cmdlet is read-only and does not require elevated privileges. It returns a structured
+        object rather than printing a formatted report, so it can be piped, filtered, or logged
+        directly.
+      </maml:para>
+      <maml:para>
+        Immediately after the underlying time service (re)starts - whether from a manual restart,
+        Set-NtpConf, or an OS reboot - NtpReference may briefly show "Local CMOS Clock" with
+        Stratum 1 on Windows. This is W32Time's placeholder state before its first successful poll,
+        not a sign of lost configuration.
+      </maml:para>
+    </maml:description>
+
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Get-NtpConf</maml:name>
+      </command:syntaxItem>
+    </command:syntax>
+
+    <command:parameters />
+
+    <command:inputTypes>
+      <command:inputType>
+        <dev:type>
+          <maml:name>None</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>Get-NtpConf does not accept pipeline input.</maml:para>
+        </maml:description>
+      </command:inputType>
+    </command:inputTypes>
+
+    <command:returnValues>
+      <command:returnValue>
+        <dev:type>
+          <maml:name>PSAdminTools.NtpCheck.NtpConfigInfo</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>
+            An object with ComputerName, CurrentTime, TimeZoneId, TimeZoneDisplayName, NtpService,
+            NtpReference, and Stratum (nullable) properties.
+          </maml:para>
+        </maml:description>
+      </command:returnValue>
+    </command:returnValues>
+
+    <command:examples>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 1 --------------------------</maml:title>
+        <dev:code>Get-NtpConf</dev:code>
+        <dev:remarks>
+          <maml:para>Returns the current time, time zone, and active NTP reference for the local machine.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 2 --------------------------</maml:title>
+        <dev:code>Get-NtpConf | Format-List</dev:code>
+        <dev:remarks>
+          <maml:para>Displays every property of the result, one per line.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 3 --------------------------</maml:title>
+        <dev:code>Get-NtpConf | Select-Object ComputerName, NtpService, NtpReference</dev:code>
+        <dev:remarks>
+          <maml:para>Returns just the fields relevant to identifying which NTP source a machine is using.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+    </command:examples>
+
+  </command:command>
+
+  <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10"
+                    xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10"
+                    xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+
+    <command:details>
+      <command:name>Set-NtpConf</command:name>
+      <maml:description>
+        <maml:para>Configures the local machine's NTP server list and restarts the relevant time service.</maml:para>
+      </maml:description>
+      <maml:copyright>
+        <maml:para>SysAdminTools</maml:para>
+      </maml:copyright>
+      <command:verb>Set</command:verb>
+      <command:noun>NtpConf</command:noun>
+      <dev:version>1.0.0</dev:version>
+    </command:details>
+
+    <maml:description>
+      <maml:para>
+        Set-NtpConf configures the NTP server list used by the local machine, auto-detecting OS and
+        NTP service the same way Get-NtpConf does: W32Time on Windows; chrony, systemd-timesyncd,
+        or ntpd (tried in that order) on Linux. The supplied server list replaces any previously
+        configured servers entirely - it is not additive.
+      </maml:para>
+      <maml:para>
+        This cmdlet requires elevated privileges: Administrator on Windows, root on Linux. If the
+        current session is not elevated, it fails immediately with a clear error and no
+        configuration files are touched.
+      </maml:para>
+      <maml:para>
+        On Windows, it runs "w32tm /config /manualpeerlist:... /update", restarts the W32Time
+        service, and forces an immediate resync. On Linux, it edits the config file for the
+        detected service (chrony.conf, timesyncd.conf, or ntp.conf) and restarts the matching
+        systemd unit.
+      </maml:para>
+      <maml:para>
+        Changes are written to permanent configuration (the Windows registry, or Linux config
+        files) and survive both a service restart and a full OS reboot. There is no -WhatIf/-Confirm
+        support and no automatic backup of the previous configuration - the change is applied
+        directly. On success, the cmdlet returns the refreshed Get-NtpConf output so the change can
+        be verified immediately.
+      </maml:para>
+    </maml:description>
+
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Set-NtpConf</maml:name>
+        <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+          <maml:name>Server</maml:name>
+          <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Server</maml:name>
+        <maml:description>
+          <maml:para>
+            One or more NTP server hostnames or IP addresses to configure, comma-separated (up to
+            10). Replaces any previously configured servers entirely.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
+        <dev:type>
+          <maml:name>String[]</maml:name>
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+    </command:parameters>
+
+    <command:inputTypes>
+      <command:inputType>
+        <dev:type>
+          <maml:name>None</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>Set-NtpConf does not accept pipeline input.</maml:para>
+        </maml:description>
+      </command:inputType>
+    </command:inputTypes>
+
+    <command:returnValues>
+      <command:returnValue>
+        <dev:type>
+          <maml:name>PSAdminTools.NtpCheck.NtpConfigInfo</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>
+            On success, returns the refreshed configuration (same object shape as Get-NtpConf) so
+            the applied change can be verified immediately. On failure (e.g. not elevated, or no
+            supported NTP service found), writes a non-terminating error and returns nothing.
+          </maml:para>
+        </maml:description>
+      </command:returnValue>
+    </command:returnValues>
+
+    <command:examples>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 1 --------------------------</maml:title>
+        <dev:code>Set-NtpConf -Server time.windows.com</dev:code>
+        <dev:remarks>
+          <maml:para>Configures a single NTP server on Windows. Must be run from an elevated (Administrator) session.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 2 --------------------------</maml:title>
+        <dev:code>sudo pwsh -c "Set-NtpConf -Server pool.ntp.org,time.google.com"</dev:code>
+        <dev:remarks>
+          <maml:para>Configures multiple NTP servers on Linux, run as root via sudo.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 3 --------------------------</maml:title>
+        <dev:code>Set-NtpConf -Server 192.168.247.10
+Test-Time -Remote 192.168.247.10</dev:code>
+        <dev:remarks>
+          <maml:para>Configures a server, then immediately checks drift against it with Test-Time to confirm the change is taking effect.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+    </command:examples>
+
+  </command:command>
+
 </helpItems>
