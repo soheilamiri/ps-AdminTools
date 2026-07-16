@@ -126,6 +126,7 @@ Stratum             : 4
 ## Set-NtpConf
 
 Configures the local machine's NTP server list and restarts the relevant time service so the change takes effect. Auto-detects OS and NTP service the same way `Get-NtpConf` does. **Replaces any previously configured servers entirely** — this is not additive.
+**Note:** sync may take a few seconds to a couple minutes depending on network conditions, and suggest running Get-NtpConf again after a short wait.
 
 **Requires elevated privileges:** Administrator on Windows, root on Linux. Fails immediately with a clear error if not elevated — no config files are touched in that case.
 

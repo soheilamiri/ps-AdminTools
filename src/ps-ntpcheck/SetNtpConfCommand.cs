@@ -36,8 +36,23 @@ namespace PSAdminTools.NtpCheck
 
             Host.UI.WriteLine(message);
 
+            // Give the time service a moment to attempt initial sync before checking status.
+            System.Threading.Thread.Sleep(2000);
+
+            var config = NtpConfigReader.GetConfig();
+
+            if (config.Stratum == 0 ||
+                string.IsNullOrEmpty(config.NtpReference) ||
+                config.NtpReference.TrimEnd().EndsWith("()"))
+            {
+                WriteWarning(
+                    "NTP server configured and service restarted, but synchronization has not " +
+                    "completed yet. This is normal and can take a few seconds up to a couple of " +
+                    "minutes depending on network conditions. Run Get-NtpConf again shortly to confirm sync status.");
+            }
+
             // Return the refreshed config so the change can be verified immediately.
-            WriteObject(NtpConfigReader.GetConfig());
+            WriteObject(config);
         }
     }
 }
