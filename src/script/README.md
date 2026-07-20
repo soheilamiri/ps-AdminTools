@@ -65,7 +65,7 @@ OpenStack Endpoint : http://cld-epanel.openstack-infra.local
 
 **Capture the result for use in a script**
 ```powershell
-$conn = Import-OpenStackRCFile -Path .\Fanap-kish.sh
+$conn = Import-OpenStackRCFile -Path .\openstack_RCfile.sh
 Write-Host "Connected to $($conn.Endpoint) as $($conn.Username)"
 ```
 
