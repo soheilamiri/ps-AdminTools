@@ -6,7 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6.svg)](#prerequisites)
 
-A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`) are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
+A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`) and `Import-OpenStackRCFile` are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
 
 ## Tools included
 
@@ -17,6 +17,7 @@ A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and
 | [`Test-Time`](src/ps-ntpcheck/README.md#test-time) | Compare local or NTP source time against up to 5 remote NTP servers, with configurable offset tolerance and retry | Windows & Linux |
 | [`Get-NtpConf`](src/ps-ntpcheck/README.md#get-ntpconf) | Read the current time, time zone, and active NTP reference as a structured object | Windows & Linux |
 | [`Set-NtpConf`](src/ps-ntpcheck/README.md#set-ntpconf) | Configure the system's NTP server(s) and restart the time service (Admin/root required) | Windows & Linux |
+| [`Import-OpenStackRCFile`](src/script/README.md) | Parse an OpenStack RC ("openrc") shell script and import it as PowerShell environment variables | Windows & Linux |
 
 Each tool has its own README linked above with full usage details, options, and examples.
 <img width="774" height="315" alt="image" src="https://github.com/user-attachments/assets/97eef8c4-ca0f-47ed-a6ae-da8884b034b6" />
@@ -40,6 +41,9 @@ Each tool has its own README linked above with full usage details, options, and 
 **`Set-NtpConf` (Windows & Linux):**
 - Administrator privileges on Windows, root on Linux (it edits system time configuration and restarts the time service)
 - On Linux, one of `chrony`, `systemd-timesyncd`, or `ntpd` must be installed
+
+**`Import-OpenStackRCFile` (Windows & Linux):**
+- No additional dependencies — pure PowerShell, no external CLI or SDK required
 
 ## Installation
 
@@ -76,6 +80,9 @@ Get-NtpConf
 
 # Configure the system's NTP server (requires Administrator/root)
 Set-NtpConf -Server time.windows.com
+
+# Import an OpenStack RC file as environment variables (prompts for password if not embedded in the file)
+Import-OpenStackRCFile -Path .\Fanap-kish.sh
 ```
 
 ## Project structure
@@ -86,7 +93,9 @@ ps-AdminTools/
 ├── src/
 │   ├── ps-bandwidthmonitor/  # C# source for Start-BwMon
 │   ├── ps-tcpdump/           # C# source for Start-TcpDump
-│   └── ps-ntpcheck/          # C# source for Test-Time, Get-NtpConf, Set-NtpConf (cross-platform)
+│   ├── ps-ntpcheck/          # C# source for Test-Time, Get-NtpConf, Set-NtpConf (cross-platform)
+│   └── script/                # Pure PowerShell script functions (cross-platform)
+│       └── Import-OpenStackRCFile.ps1
 ├── ps-AdminTools.psd1        # Module manifest
 ├── PS-AdminTools.psm1        # Module loader / exported functions
 ├── LICENSE
@@ -110,6 +119,8 @@ dotnet build -c Release
 # copy bin\Release\netstandard2.0\NtpCheck.dll -> ..\..\Bin\NtpCheck.dll
 # copy src\ps-ntpcheck\en-US\NtpCheck.dll-Help.xml -> ..\..\Bin\en-US\NtpCheck.dll-Help.xml
 ```
+
+`src/script/` holds plain PowerShell script functions (like `Import-OpenStackRCFile`) that don't need compiling — they're dot-sourced directly from `PS-AdminTools.psm1`. To add or update one, edit the `.ps1` file and reload the module; no build step required.
 
 Then reload the module:
 ```powershell

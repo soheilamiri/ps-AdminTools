@@ -9,6 +9,14 @@ if (-not (Test-Path $BinPath)) {
     throw "Bin folder not found at: $BinPath"
 }
 
+# ── Load script-based functions from Bin ───────────────────────────────────────
+$ImportOpenStackRCFilePath = Join-Path $BinPath 'Import-OpenStackRCFile.ps1'
+if (-not (Test-Path $ImportOpenStackRCFilePath)) {
+    throw "Missing required script: $ImportOpenStackRCFilePath"
+}
+. $ImportOpenStackRCFilePath
+Write-Verbose "Loaded: $ImportOpenStackRCFilePath"
+
 # ── Store BinPath in AppDomain so the resolver closure can reach it ───────────
 [System.AppDomain]::CurrentDomain.SetData('SysAdminToolsBinPath', $BinPath)
 
@@ -183,4 +191,4 @@ function Start-TcpDump {
     }
 }
 
-Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump' -Cmdlet 'Test-Time', 'Get-NtpConf', 'Set-NtpConf'
+Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile' -Cmdlet 'Test-Time', 'Get-NtpConf', 'Set-NtpConf'

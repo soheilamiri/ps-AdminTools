@@ -1,6 +1,6 @@
 @{
     # Module identity
-    ModuleVersion     = '1.3.0'
+    ModuleVersion     = '1.4.0'
     GUID              = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
     Author            = 'Soheil Darvishamiri'
     CompanyName       = 'SysAdminTools'
@@ -16,7 +16,7 @@
     NestedModules     = @('Bin\NtpCheck.dll')
 
     # Exported commands
-    FunctionsToExport = @('Start-BwMon', 'Start-TcpDump')
+    FunctionsToExport = @('Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile')
     CmdletsToExport = @('Test-Time', 'Get-NtpConf', 'Set-NtpConf')
     VariablesToExport = @()
     AliasesToExport   = @()
