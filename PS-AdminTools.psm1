@@ -191,4 +191,4 @@ function Start-TcpDump {
     }
 }
 
-Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile' -Cmdlet 'Test-Time', 'Get-NtpConf', 'Set-NtpConf'
+Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile' -Cmdlet 'Test-Time', 'Get-NtpConf', 'Set-NtpConf', 'Get-SslInfo'

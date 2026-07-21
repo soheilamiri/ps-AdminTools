@@ -6,7 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6.svg)](#prerequisites)
 
-A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`) and `Import-OpenStackRCFile` are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
+A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`), `Get-SslInfo`, and `Import-OpenStackRCFile` are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
 
 ## Tools included
 
@@ -17,6 +17,7 @@ A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and
 | [`Test-Time`](src/ps-ntpcheck/README.md#test-time) | Compare local or NTP source time against up to 5 remote NTP servers, with configurable offset tolerance and retry | Windows & Linux |
 | [`Get-NtpConf`](src/ps-ntpcheck/README.md#get-ntpconf) | Read the current time, time zone, and active NTP reference as a structured object | Windows & Linux |
 | [`Set-NtpConf`](src/ps-ntpcheck/README.md#set-ntpconf) | Configure the system's NTP server(s) and restart the time service (Admin/root required) | Windows & Linux |
+| [`Get-SslInfo`](src/ps-sslcheck/README.md) | Connect to a remote host over TLS and return its certificate details, including days until expiry | Windows & Linux |
 | [`Import-OpenStackRCFile`](src/script/README.md) | Parse an OpenStack RC ("openrc") shell script and import it as PowerShell environment variables | Windows & Linux |
 
 Each tool has its own README linked above with full usage details, options, and examples.
@@ -41,6 +42,9 @@ Each tool has its own README linked above with full usage details, options, and 
 **`Set-NtpConf` (Windows & Linux):**
 - Administrator privileges on Windows, root on Linux (it edits system time configuration and restarts the time service)
 - On Linux, one of `chrony`, `systemd-timesyncd`, or `ntpd` must be installed
+
+**`Get-SslInfo` (Windows & Linux):**
+- No additional dependencies — connects directly via TLS, no external CLI or SDK required
 
 **`Import-OpenStackRCFile` (Windows & Linux):**
 - No additional dependencies — pure PowerShell, no external CLI or SDK required
@@ -81,6 +85,9 @@ Get-NtpConf
 # Configure the system's NTP server (requires Administrator/root)
 Set-NtpConf -Server time.windows.com
 
+# Check a remote site's TLS certificate, including days until expiry
+Get-SslInfo -Url yahoo.com
+
 # Import an OpenStack RC file as environment variables (prompts for password if not embedded in the file)
 Import-OpenStackRCFile -Path .\Fanap-kish.sh
 ```
@@ -88,13 +95,15 @@ Import-OpenStackRCFile -Path .\Fanap-kish.sh
 ## Project structure
 ```
 ps-AdminTools/
-├── Bin/                      # Compiled DLLs loaded by the module
-│   └── en-US/                # Cmdlet help (MAML) for binary modules
+├── Bin/                      # Compiled DLLs + loaded scripts, used by the module at runtime
+│   ├── en-US/                 # Cmdlet help (MAML) for binary modules
+│   └── Import-OpenStackRCFile.ps1   # Copied here from src/script/ - see note below
 ├── src/
 │   ├── ps-bandwidthmonitor/  # C# source for Start-BwMon
 │   ├── ps-tcpdump/           # C# source for Start-TcpDump
 │   ├── ps-ntpcheck/          # C# source for Test-Time, Get-NtpConf, Set-NtpConf (cross-platform)
-│   └── script/                # Pure PowerShell script functions (cross-platform)
+│   ├── ps-sslcheck/          # C# source for Get-SslInfo (cross-platform)
+│   └── script/                # Pure PowerShell script functions (cross-platform) - source of truth
 │       └── Import-OpenStackRCFile.ps1
 ├── ps-AdminTools.psd1        # Module manifest
 ├── PS-AdminTools.psm1        # Module loader / exported functions
@@ -102,9 +111,11 @@ ps-AdminTools/
 └── README.md
 ```
 
+> **Note:** `src/` holds source; `Bin/` holds what the module actually loads at runtime — same relationship as the compiled DLLs. `Import-OpenStackRCFile.ps1` is edited in `src/script/`, then copied into `Bin/` (`PS-AdminTools.psm1` dot-sources it from there).
+
 ## Building from source
 
-Each tool under `src/` is a standard .NET class library. To rebuild a tool's DLL and drop it into the module's `Bin/` folder:
+Each C# tool under `src/` is a standard .NET class library. To rebuild a tool's DLL and drop it into the module's `Bin/` folder:
 
 ```powershell
 cd src\ps-tcpdump
@@ -120,7 +131,17 @@ dotnet build -c Release
 # copy src\ps-ntpcheck\en-US\NtpCheck.dll-Help.xml -> ..\..\Bin\en-US\NtpCheck.dll-Help.xml
 ```
 
-`src/script/` holds plain PowerShell script functions (like `Import-OpenStackRCFile`) that don't need compiling — they're dot-sourced directly from `PS-AdminTools.psm1`. To add or update one, edit the `.ps1` file and reload the module; no build step required.
+`Get-SslInfo` builds the same way too:
+```powershell
+cd src\ps-sslcheck
+dotnet build -c Release
+# copy bin\Release\netstandard2.0\SslCheck.dll -> ..\..\Bin\SslCheck.dll
+```
+
+`src/script/` holds plain PowerShell script functions (like `Import-OpenStackRCFile`) that don't need compiling. To update one, edit the `.ps1` file in `src/script/`, then copy it into `Bin/`:
+```powershell
+Copy-Item .\src\script\Import-OpenStackRCFile.ps1 -Destination .\Bin -Force
+```
 
 Then reload the module:
 ```powershell
