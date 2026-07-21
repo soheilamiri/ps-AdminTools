@@ -46,26 +46,26 @@ A `PSCustomObject`:
 
 **RC file with a literal password — imports directly, no prompt**
 ```powershell
-Import-OpenStackRCFile -Path .\Fanap-kish.sh
+Import-OpenStackRCFile -Path .\openstack_rcfile.sh
 ```
 ```
-OpenStack RC file imported successfully from '...\Fanap-kish.sh' (10 variable(s) set).
-OpenStack Endpoint : http://cld-epanel.Fanap-infra.local
+OpenStack RC file imported successfully from '...\openstack_rcfile.sh' (10 variable(s) set).
+OpenStack Endpoint : http://cld-epanel.openstack.local
 ```
 
 **RC file that reads the password interactively — prompts for it**
 ```powershell
-Import-OpenStackRCFile -Path .\Fanap-Sharepoint-openrc.sh
+Import-OpenStackRCFile -Path .\openstack-Sharepoint-openrc.sh
 ```
 ```
-Enter OpenStack password for user 's.amiri' (project 'Fanap-Sharepoint'): ****************
-OpenStack RC file imported successfully from '...\Fanap-Sharepoint-openrc.sh' (10 variable(s) set).
-OpenStack Endpoint : http://cld-epanel.Fanap-infra.local
+Enter OpenStack password for user 's.amiri' (project 'openstack-Sharepoint'): ****************
+OpenStack RC file imported successfully from '...\openstack-Sharepoint-openrc.sh' (10 variable(s) set).
+OpenStack Endpoint : http://cld-epanel.openstack-infra.local
 ```
 
 **Capture the result for use in a script**
 ```powershell
-$conn = Import-OpenStackRCFile -Path .\Fanap-kish.sh
+$conn = Import-OpenStackRCFile -Path .\openstack_RCfile.sh
 Write-Host "Connected to $($conn.Endpoint) as $($conn.Username)"
 ```
 
