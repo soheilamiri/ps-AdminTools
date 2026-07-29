@@ -18,6 +18,7 @@ NestedModules   = @('Bin\NtpCheck.dll', 'Bin\SslCheck.dll')
     # Exported commands
     FunctionsToExport = @('Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile')
     CmdletsToExport = @('Test-Time', 'Get-NtpConf', 'Set-NtpConf','Get-SslInfo')
+    TypesToProcess = @('Bin\NtpCheck.types.ps1xml')
     VariablesToExport = @()
     AliasesToExport   = @()
 

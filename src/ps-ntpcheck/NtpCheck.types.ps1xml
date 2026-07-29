@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Types>
+  <Type>
+    <Name>PSAdminTools.NtpCheck.TestTimeResult</Name>
+    <Members>
+      <PropertySet>
+        <Name>DefaultDisplayPropertySet</Name>
+        <ReferencedProperties>
+          <Name>Remote</Name>
+          <Name>OffsetSeconds</Name>
+          <Name>Status</Name>
+        </ReferencedProperties>
+      </PropertySet>
+    </Members>
+  </Type>
+</Types>
