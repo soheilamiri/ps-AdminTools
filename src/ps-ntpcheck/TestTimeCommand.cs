@@ -23,10 +23,15 @@ namespace PSAdminTools.NtpCheck
         public bool WithinTolerance { get; set; }
 
         /// <summary>
-        /// Human-readable status with embedded ANSI color (green True / orange False / red ERROR)
-        /// for terminals that render ANSI escape sequences, such as PowerShell 7's default console
-        /// table formatting. Selecting this property directly (e.g. .Status) returns the raw string
-        /// including the escape codes.
+        /// Human-readable status with embedded ANSI color for terminals that render ANSI escape
+        /// sequences (such as PowerShell 7's default console table formatting):
+        ///   True    (green)  - reachable, and offset is within MaxOffset
+        ///   Warning (orange) - reachable, but offset exceeds MaxOffset
+        ///   Error   (red)    - could not connect to the NTP server at all
+        /// Selecting this property directly (e.g. .Status) returns the raw string including the
+        /// escape codes. Run with -Verbose to see the full underlying connection error text for
+        /// any Error rows - it is deliberately not dumped to the console by default, since a raw
+        /// socket exception is long and the Status/table already conveys that something failed.
         /// </summary>
         public string Status { get; set; } = string.Empty;
     }
@@ -139,7 +144,9 @@ namespace PSAdminTools.NtpCheck
             }
             catch (NtpQueryException ex)
             {
-                WriteError(new ErrorRecord(ex, "SourceNtpQueryFailed", ErrorCategory.ResourceUnavailable, Source));
+                // Full exception detail available via -Verbose only - kept out of the default
+                // console/error stream so a connection failure doesn't dump a wall of text.
+                WriteVerbose($"Source query failed: {ex.Message}");
 
                 foreach (string remote in Remote)
                 {
@@ -154,7 +161,7 @@ namespace PSAdminTools.NtpCheck
                             Remote = remote,
                             OffsetSeconds = null,
                             WithinTolerance = false,
-                            Status = $"{AnsiRed}ERROR{AnsiReset}"
+                            Status = $"{AnsiRed}Error{AnsiReset}"
                         });
                     }
                 }
@@ -187,13 +194,12 @@ namespace PSAdminTools.NtpCheck
 
             foreach (var result in results)
             {
+                // Same principle here: no console-dumping ErrorRecord with the raw exception -
+                // the table's Status column already communicates that this remote failed. Full
+                // detail (DNS failure vs timeout vs malformed response) is one -Verbose away.
                 if (!result.Success)
                 {
-                    WriteError(new ErrorRecord(
-                        new NtpQueryException(result.ErrorMessage ?? result.ShortReason),
-                        "RemoteNtpQueryFailed",
-                        ErrorCategory.ResourceUnavailable,
-                        result.Label));
+                    WriteVerbose($"{result.Label}: {result.ErrorMessage}");
                 }
 
                 if (Output.IsPresent)
@@ -210,10 +216,10 @@ namespace PSAdminTools.NtpCheck
         private static TestTimeResult ToTestTimeResult(RemoteResult result)
         {
             string status = !result.Success
-                ? $"{AnsiRed}ERROR{AnsiReset}"
+                ? $"{AnsiRed}Error{AnsiReset}"
                 : result.WithinTolerance
                     ? $"{AnsiGreen}True{AnsiReset}"
-                    : $"{AnsiOrange}False{AnsiReset}";
+                    : $"{AnsiOrange}Warning{AnsiReset}";
 
             return new TestTimeResult
             {
