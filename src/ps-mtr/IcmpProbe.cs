@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace PSAdminTools.Mtr
@@ -35,11 +36,20 @@ namespace PSAdminTools.Mtr
     /// Sends a single TTL-limited ICMP echo and reports which host answered.
     ///
     /// Two Windows paths:
-    ///   - No -Interface: System.Net.NetworkInformation.Ping with PingOptions.Ttl. Simple and
-    ///     reliable, but gives no control over which NIC the probe leaves from.
+    ///   - No -Interface: System.Net.NetworkInformation.Ping with PingOptions.Ttl.
     ///   - With -Interface: IcmpSendEcho2Ex from iphlpapi.dll, which accepts an explicit source
-    ///     address. This is what makes real interface binding possible, and unlike a raw socket
-    ///     it does NOT require Administrator.
+    ///     address. Unlike a raw socket, this does NOT require Administrator.
+    ///
+    /// On timing: every probe runs synchronously on its own dedicated thread. That matters.
+    /// Using "await SendPingAsync" instead queues the continuation onto the thread pool, so with
+    /// a full cycle of probes in flight the stopwatch stopped long after the reply arrived and
+    /// every hop reported the same inflated figure. A synchronous send stops the stopwatch on the
+    /// same thread the moment the call returns, and a dedicated thread avoids the pool's
+    /// thread-injection throttle delaying the later TTLs.
+    ///
+    /// PingReply.RoundtripTime is preferred where available, but Windows only populates it when
+    /// Status is Success - for TtlExpired replies (every intermediate hop) it is zero, so the
+    /// stopwatch value is used there.
     /// </summary>
     internal static class IcmpProbe
     {
@@ -51,23 +61,22 @@ namespace PSAdminTools.Mtr
         private const uint IpDestHostUnreachable = 11003;
         private const uint IpTtlExpiredTransit = 11013;
 
-        public static async Task<ProbeResult> ProbeAsync(
+        public static Task<ProbeResult> ProbeAsync(
             IPAddress target,
             int ttl,
             int timeoutMs,
             IPAddress? sourceAddress)
         {
-            if (sourceAddress != null)
-            {
-                // Run the synchronous P/Invoke off the calling thread so every TTL in a cycle
-                // can still be in flight at the same time.
-                return await Task.Run(() => ProbeBound(target, ttl, timeoutMs, sourceAddress)).ConfigureAwait(false);
-            }
-
-            return await ProbeUnbound(target, ttl, timeoutMs).ConfigureAwait(false);
+            return Task.Factory.StartNew(
+                () => sourceAddress != null
+                    ? ProbeBound(target, ttl, timeoutMs, sourceAddress)
+                    : ProbeUnbound(target, ttl, timeoutMs),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
         }
 
-        private static async Task<ProbeResult> ProbeUnbound(IPAddress target, int ttl, int timeoutMs)
+        private static ProbeResult ProbeUnbound(IPAddress target, int ttl, int timeoutMs)
         {
             using (var ping = new Ping())
             {
@@ -76,12 +85,12 @@ namespace PSAdminTools.Mtr
 
                 try
                 {
-                    PingReply reply = await ping.SendPingAsync(target, timeoutMs, Payload, options).ConfigureAwait(false);
+                    PingReply reply = ping.Send(target, timeoutMs, Payload, options);
                     stopwatch.Stop();
 
-                    // PingReply.RoundtripTime is whole milliseconds; Stopwatch gives the
-                    // sub-millisecond resolution mtr's display expects.
-                    double elapsed = stopwatch.Elapsed.TotalMilliseconds;
+                    double elapsed = reply.RoundtripTime > 0
+                        ? reply.RoundtripTime
+                        : stopwatch.Elapsed.TotalMilliseconds;
 
                     if (reply.Status == IPStatus.Success)
                     {
@@ -168,7 +177,12 @@ namespace PSAdminTools.Mtr
                 }
 
                 var reply = (IcmpEchoReply)Marshal.PtrToStructure(replyBuffer, typeof(IcmpEchoReply))!;
-                double elapsed = stopwatch.Elapsed.TotalMilliseconds;
+
+                // Same reasoning as the unbound path: the API only fills RoundTripTime for a
+                // successful echo, so fall back to the measured elapsed time for TTL-expired hops.
+                double elapsed = reply.RoundTripTime > 0
+                    ? reply.RoundTripTime
+                    : stopwatch.Elapsed.TotalMilliseconds;
 
                 if (reply.Status == IpSuccess)
                 {
@@ -237,6 +251,68 @@ namespace PSAdminTools.Mtr
                 .Where(u => u.Address.AddressFamily == AddressFamily.InterNetwork)
                 .Select(u => u.Address)
                 .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Determines which local IPv4 address the OS routing table would use to reach the given
+        /// target. Connecting a UDP socket performs the route lookup and populates LocalEndPoint
+        /// without putting a single packet on the wire.
+        /// </summary>
+        public static IPAddress? GetSourceAddressForTarget(IPAddress target)
+        {
+            try
+            {
+                using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+                {
+                    socket.Connect(target, 65530);
+                    return (socket.LocalEndPoint as IPEndPoint)?.Address;
+                }
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Finds the interface that owns a given local address, returning its friendly name and
+        /// IPv4 interface index. Returns nulls when no match is found.
+        /// </summary>
+        public static (string? Name, int? Index) GetInterfaceInfo(IPAddress localAddress)
+        {
+            try
+            {
+                foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    IPInterfaceProperties properties = nic.GetIPProperties();
+
+                    bool owns = properties.UnicastAddresses
+                        .Any(u => u.Address.Equals(localAddress));
+
+                    if (!owns)
+                    {
+                        continue;
+                    }
+
+                    int? index = null;
+                    try
+                    {
+                        index = properties.GetIPv4Properties()?.Index;
+                    }
+                    catch (NetworkInformationException)
+                    {
+                        // Adapter has no IPv4 properties - leave the index blank.
+                    }
+
+                    return (nic.Name, index);
+                }
+            }
+            catch (Exception)
+            {
+                // Fall through to the empty result below.
+            }
+
+            return (null, null);
         }
 
         public static string[] GetInterfaceNames()

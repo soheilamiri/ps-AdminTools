@@ -6,6 +6,21 @@ using System.Text;
 namespace PSAdminTools.Mtr
 {
     /// <summary>
+    /// Everything shown on the header line: what is being traced, and which local address and
+    /// interface the probes leave from.
+    /// </summary>
+    internal sealed class TraceContext
+    {
+        public System.Net.IPAddress TargetAddress { get; set; } = System.Net.IPAddress.None;
+        public System.Net.IPAddress? SourceAddress { get; set; }
+        public string? InterfaceName { get; set; }
+        public int? InterfaceIndex { get; set; }
+
+        /// <summary>True when -Interface was supplied, so probes are explicitly source-bound.</summary>
+        public bool ExplicitlyBound { get; set; }
+    }
+
+    /// <summary>
     /// Draws the live mtr-style table. When the host supports cursor positioning (Windows
     /// Terminal, the VS Code integrated terminal, conhost) the table is redrawn in place each
     /// cycle. When it doesn't - for example when output is piped or redirected - it falls back
@@ -42,15 +57,39 @@ namespace PSAdminTools.Mtr
             }
         }
 
-        public void Render(string target, int cycle, IReadOnlyList<HopStats> hops, bool noDns)
+        public void Render(TraceContext context, int cycle, IReadOnlyList<HopStats> hops, bool noDns)
         {
             var plainLines = new List<string>();
             var colouredLines = new List<string>();
 
-            string header = $"Start-Mtr  {target}";
-            string cycleText = $"Cycle {cycle}   Ctrl+C to stop";
-            plainLines.Add(header + "   " + cycleText);
-            colouredLines.Add(header + "   " + AnsiDim + cycleText + AnsiReset);
+            // Line 1: what is being tested and where the probes are leaving from.
+            string interfaceText;
+            if (context.InterfaceName == null)
+            {
+                interfaceText = "unknown";
+            }
+            else if (context.InterfaceIndex.HasValue)
+            {
+                interfaceText = $"{context.InterfaceName} (index {context.InterfaceIndex.Value})";
+            }
+            else
+            {
+                interfaceText = context.InterfaceName;
+            }
+
+            string boundNote = context.ExplicitlyBound ? " [bound]" : string.Empty;
+            string info =
+                $"Target {context.TargetAddress}" +
+                $"   Source {context.SourceAddress?.ToString() ?? "unknown"}" +
+                $"   Interface {interfaceText}{boundNote}";
+
+            plainLines.Add(info);
+            colouredLines.Add(info);
+
+            // Line 2: cycle counter and the stop hint.
+            string cycleText = $"Start-Mtr   Cycle {cycle}   Ctrl+C to stop";
+            plainLines.Add(cycleText);
+            colouredLines.Add(AnsiDim + cycleText + AnsiReset);
 
             string columns =
                 "Host".PadRight(HostColumnWidth + 4) +

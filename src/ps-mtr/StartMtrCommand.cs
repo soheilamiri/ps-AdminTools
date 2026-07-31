@@ -226,6 +226,26 @@ namespace PSAdminTools.Mtr
                 WriteVerbose($"Binding probes to {Interface} ({sourceAddress}).");
             }
 
+            // Even when no -Interface was given, report which address the routing table picks,
+            // so the header always shows where probes actually originate.
+            IPAddress? reportedSource = sourceAddress ?? IcmpProbe.GetSourceAddressForTarget(target);
+            string? interfaceName = null;
+            int? interfaceIndex = null;
+
+            if (reportedSource != null)
+            {
+                (interfaceName, interfaceIndex) = IcmpProbe.GetInterfaceInfo(reportedSource);
+            }
+
+            var context = new TraceContext
+            {
+                TargetAddress = target,
+                SourceAddress = reportedSource,
+                InterfaceName = interfaceName,
+                InterfaceIndex = interfaceIndex,
+                ExplicitlyBound = sourceAddress != null
+            };
+
             var hops = new Dictionary<int, HopStats>();
             var renderer = new MtrRenderer(Host.UI);
             int? destinationTtl = null;
@@ -290,7 +310,7 @@ namespace PSAdminTools.Mtr
                     .Select(ttl => hops[ttl])
                     .ToList();
 
-                renderer.Render(target.ToString(), cycle, visible, NoDns.IsPresent);
+                renderer.Render(context, cycle, visible, NoDns.IsPresent);
 
                 if (!SleepInterruptibly(Interval * 1000))
                 {

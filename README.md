@@ -6,7 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6.svg)](#prerequisites)
 
-A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`), `Get-SslInfo`, and `Import-OpenStackRCFile` are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
+A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`), `Get-SslInfo`, `Start-Mtr`, and `Import-OpenStackRCFile` are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
 
 ## Tools included
 
@@ -14,6 +14,7 @@ A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and
 |---|---|---|
 | [`Start-BwMon`](src/ps-bandwidthmonitor/README.md) | Live per-process network bandwidth monitor with drill-down into connections | Windows only |
 | [`Start-TcpDump`](src/ps-tcpdump/README.md) | Interactive, color-coded packet capture — tcpdump-style, with optional `.pcap` export | Windows only |
+| [`Start-Mtr`](src/ps-mtr/README.md) | Live traceroute with per-hop loss and latency statistics, mtr-style — far faster than `tracert` | Windows & Linux |
 | [`Test-Time`](src/ps-ntpcheck/README.md#test-time) | Compare local or NTP source time against up to 5 remote NTP servers, with configurable offset tolerance and retry | Windows & Linux |
 | [`Get-NtpConf`](src/ps-ntpcheck/README.md#get-ntpconf) | Read the current time, time zone, and active NTP reference as a structured object | Windows & Linux |
 | [`Set-NtpConf`](src/ps-ntpcheck/README.md#set-ntpconf) | Configure the system's NTP server(s) and restart the time service (Admin/root required) | Windows & Linux |
@@ -36,6 +37,10 @@ Each tool has its own README linked above with full usage details, options, and 
 **`Start-BwMon` / `Start-TcpDump` (Windows only):**
 - Windows 10/11 or Windows Server 2019/2022/2025
 - [Npcap](https://npcap.com/#download) 1.00+ (install with **WinPcap API-compatible mode** checked)
+
+**`Start-Mtr`:**
+- **Windows:** no additional dependencies, and no elevation required — the trace is implemented directly against the Windows ICMP API
+- **Linux:** requires the `mtr` binary (`sudo apt install mtr-tiny` or `sudo dnf install mtr`), which `Start-Mtr` delegates to
 
 **`Test-Time` / `Get-NtpConf` (Windows & Linux):**
 - No additional dependencies — query NTP servers/status directly, no packet capture required
@@ -71,6 +76,12 @@ Start-BwMon
 # Capture packets interactively (Windows only)
 Start-TcpDump
 
+# Live traceroute with per-hop loss and latency stats (Ctrl+C to stop)
+Start-Mtr 4.2.2.4
+
+# Same, without reverse-DNS lookups, bound to a specific interface
+Start-Mtr -Target 4.2.2.4 -NoDns -Interface Ethernet
+
 # Compare local clock against an NTP server (Windows or Linux)
 Test-Time -Remote time.windows.com
 
@@ -102,6 +113,7 @@ ps-AdminTools/
 ├── src/
 │   ├── ps-bandwidthmonitor/  # C# source for Start-BwMon
 │   ├── ps-tcpdump/           # C# source for Start-TcpDump
+│   ├── ps-mtr/               # C# source for Start-Mtr (cross-platform)
 │   ├── ps-ntpcheck/          # C# source for Test-Time, Get-NtpConf, Set-NtpConf (cross-platform)
 │   ├── ps-sslcheck/          # C# source for Get-SslInfo (cross-platform)
 │   └── script/                # Pure PowerShell script functions (cross-platform) - source of truth
@@ -137,6 +149,13 @@ dotnet build -c Release
 cd src\ps-sslcheck
 dotnet build -c Release
 # copy bin\Release\netstandard2.0\SslCheck.dll -> ..\..\Bin\SslCheck.dll
+```
+
+And `Start-Mtr`:
+```powershell
+cd src\ps-mtr
+dotnet build -c Release
+# copy bin\Release\netstandard2.0\MtrCheck.dll -> ..\..\Bin\MtrCheck.dll
 ```
 
 `src/script/` holds plain PowerShell script functions (like `Import-OpenStackRCFile`) that don't need compiling. To update one, edit the `.ps1` file in `src/script/`, then copy it into `Bin/`:

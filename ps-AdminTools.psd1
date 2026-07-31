@@ -1,10 +1,10 @@
 @{
     # Module identity
-    ModuleVersion     = '1.5.1'
+    ModuleVersion     = '1.6.1'
     GUID              = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
     Author            = 'Soheil Darvishamiri'
     CompanyName       = 'SysAdminTools'
-    Description       = 'SysAdminTools toolkit — network bandwidth monitor, packet capture (tcpdump-style), NTP time check, and more'
+    Description       = 'SysAdminTools toolkit — network bandwidth monitor, packet capture (tcpdump-style), NTP time check,windows MRT and more'
     PowerShellVersion = '7.6'
 
     # Root module

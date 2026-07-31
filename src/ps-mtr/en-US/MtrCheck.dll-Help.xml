@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="utf-8"?>
+<helpItems schema="maml" xmlns="http://msh">
+  <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10"
+                    xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10"
+                    xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+
+    <command:details>
+      <command:name>Start-Mtr</command:name>
+      <maml:description>
+        <maml:para>Runs a live traceroute with per-hop packet-loss and latency statistics, in the style of the Linux mtr tool.</maml:para>
+      </maml:description>
+      <maml:copyright>
+        <maml:para>SysAdminTools</maml:para>
+      </maml:copyright>
+      <command:verb>Start</command:verb>
+      <command:noun>Mtr</command:noun>
+      <dev:version>1.0.0</dev:version>
+    </command:details>
+
+    <maml:description>
+      <maml:para>
+        Start-Mtr traces the network path to a target and continuously re-probes every hop,
+        maintaining running statistics for each one: packet loss percentage, probes sent, and the
+        last, average, best, worst, and standard deviation of the round-trip times. The table
+        redraws in place once per cycle. Press Ctrl+C to stop.
+      </maml:para>
+      <maml:para>
+        The header line shows the target address, the local source address probes are sent from,
+        and the name and IPv4 index of the interface that owns it. Without -Interface this is the
+        address the operating system's routing table selects; with -Interface the header appends
+        [bound] to indicate probes are explicitly source-bound.
+      </maml:para>
+      <maml:para>
+        On Windows the trace is implemented directly against the ICMP API and requires no elevation.
+        Every TTL in a cycle is probed in parallel, which makes it substantially faster than
+        tracert - tracert probes strictly one hop at a time with a four-second timeout per probe,
+        so a path containing unresponsive hops can take a very long time to complete.
+      </maml:para>
+      <maml:para>
+        On Linux and macOS, Start-Mtr delegates to the installed mtr binary and passes through the
+        equivalent options. This is deliberate: .NET's Ping class falls back to invoking /bin/ping
+        when unprivileged, and that path does not reliably expose the intermediate hop address from
+        a TTL-expired reply, which is the one thing a traceroute depends on. If the mtr binary is
+        not installed, Start-Mtr reports an error explaining how to install it.
+      </maml:para>
+    </maml:description>
+
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Start-Mtr</maml:name>
+        <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+          <maml:name>Target</maml:name>
+          <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>NoDns</maml:name>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>Interface</maml:name>
+          <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>MaxHops</maml:name>
+          <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>Interval</maml:name>
+          <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>Timeout</maml:name>
+          <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Target</maml:name>
+        <maml:description>
+          <maml:para>
+            The hostname or IPv4 address to trace to. Hostnames are resolved to their first IPv4
+            address before the trace begins. IPv6 targets are not supported.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>NoDns</maml:name>
+        <maml:description>
+          <maml:para>
+            Skip reverse-DNS lookups and display IP addresses only. Equivalent to mtr's -n option.
+            Without this switch, hostnames are resolved on background threads and appear in the
+            table a cycle or two after the address itself, so a slow resolver never stalls the
+            live display.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+        </dev:type>
+        <dev:defaultValue>False</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Interface</maml:name>
+        <maml:description>
+          <maml:para>
+            Send probes from a specific network interface, rather than letting the routing table
+            choose. Equivalent to mtr's -I option. Accepts the interface friendly name, its
+            description, or its ID; use Get-NetAdapter to list the available names on Windows.
+          </maml:para>
+          <maml:para>
+            On Windows this uses IcmpSendEcho2Ex, which accepts an explicit source address and does
+            not require Administrator privileges. If the named interface has no IPv4 address,
+            Start-Mtr reports an error listing the interfaces that do.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+        <dev:defaultValue>The interface chosen by the routing table</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>MaxHops</maml:name>
+        <maml:description>
+          <maml:para>
+            The maximum number of hops to probe, from 1 to 255. Probing stops descending past the
+            destination as soon as it answers, so this only matters for paths where the target
+            never replies.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>30</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Interval</maml:name>
+        <maml:description>
+          <maml:para>
+            Seconds to wait between cycles, from 1 to 60. Each cycle re-probes every hop and
+            updates the running statistics.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>1</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Timeout</maml:name>
+        <maml:description>
+          <maml:para>
+            How long to wait for each individual probe, in milliseconds, from 100 to 10000. Probes
+            that do not answer within this window count as lost for that hop.
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>1000</dev:defaultValue>
+      </command:parameter>
+    </command:parameters>
+
+    <command:inputTypes>
+      <command:inputType>
+        <dev:type>
+          <maml:name>None</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>Start-Mtr does not accept pipeline input.</maml:para>
+        </maml:description>
+      </command:inputType>
+    </command:inputTypes>
+
+    <command:returnValues>
+      <command:returnValue>
+        <dev:type>
+          <maml:name>None</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>
+            Start-Mtr writes its table directly to the host and returns nothing to the pipeline.
+            It is an interactive display tool rather than a source of data for scripts.
+          </maml:para>
+        </maml:description>
+      </command:returnValue>
+    </command:returnValues>
+
+    <maml:alertSet>
+      <maml:title>Reading the results</maml:title>
+      <maml:alert>
+        <maml:para>
+          Loss reported on intermediate hops is frequently not real loss. Routers rate-limit how
+          quickly they generate ICMP TTL-exceeded messages, and because Start-Mtr probes every TTL
+          in parallel, that throttling appears as dropped packets. Seeing 10-40 percent on a middle
+          hop while the destination reports 0 percent is normal. The final row is the meaningful
+          figure for end-to-end loss.
+        </maml:para>
+      </maml:alert>
+      <maml:alert>
+        <maml:para>
+          For the same reason, an intermediate hop can report higher latency than the destination
+          beyond it. Generating a TTL-exceeded reply is low-priority work for a router, so the
+          measured time includes that delay rather than reflecting the real forwarding path. Again,
+          the final row is the meaningful figure for end-to-end latency.
+        </maml:para>
+      </maml:alert>
+      <maml:alert>
+        <maml:para>
+          Hops shown as ??? with 100 percent loss are routers configured not to send ICMP
+          TTL-exceeded messages at all. This does not indicate that traffic is being dropped there;
+          if later hops and the destination are answering, the path is working.
+        </maml:para>
+      </maml:alert>
+      <maml:alert>
+        <maml:para>
+          The table redraws in place when the host supports cursor positioning, which includes
+          Windows Terminal, conhost, and the VS Code integrated terminal. When output is redirected
+          or piped, Start-Mtr falls back to printing each cycle sequentially instead of emitting
+          escape sequences the destination cannot render.
+        </maml:para>
+      </maml:alert>
+    </maml:alertSet>
+
+    <command:examples>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 1 --------------------------</maml:title>
+        <dev:code>Start-Mtr 4.2.2.4</dev:code>
+        <dev:remarks>
+          <maml:para>Traces to 4.2.2.4 with the defaults: up to 30 hops, one cycle per second, a one-second per-probe timeout, and reverse DNS enabled.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 2 --------------------------</maml:title>
+        <dev:code>Start-Mtr -Target google.com -NoDns</dev:code>
+        <dev:remarks>
+          <maml:para>Traces to google.com showing IP addresses only, with no reverse-DNS lookups.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 3 --------------------------</maml:title>
+        <dev:code>Get-NetAdapter | Select-Object Name, Status
+Start-Mtr -Target 4.2.2.4 -Interface "Ethernet"</dev:code>
+        <dev:remarks>
+          <maml:para>Lists the available adapters, then sends the probes from the Ethernet interface specifically. Useful on a machine with both a VPN tunnel and a physical NIC, to confirm which path a destination is actually reached over.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 4 --------------------------</maml:title>
+        <dev:code>Start-Mtr -Target 192.168.1.1 -MaxHops 5 -Timeout 500</dev:code>
+        <dev:remarks>
+          <maml:para>Traces a nearby target, capping the trace at five hops and halving the per-probe timeout so unresponsive hops are given up on sooner.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 5 --------------------------</maml:title>
+        <dev:code>Start-Mtr -Target 4.2.2.4 -Interval 5</dev:code>
+        <dev:remarks>
+          <maml:para>Probes once every five seconds instead of every second, for a long-running check that puts less traffic on the path.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+    </command:examples>
+
+  </command:command>
+</helpItems>
