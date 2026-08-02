@@ -6,7 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6.svg)](#prerequisites)
 
-A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`), `Get-SslInfo`, `Start-Mtr`, and `Import-OpenStackRCFile` are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
+A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and .NET 10. Most tools use Npcap for deep packet-level visibility on Windows; the NTP tools (`Test-Time`, `Get-NtpConf`, `Set-NtpConf`), `Get-SslInfo`, `Start-Mtr`, `Start-Watch`, and `Import-OpenStackRCFile` are fully cross-platform and also run on Linux. No extra dependencies beyond what's listed below, no separate installers — just `Import-Module` and go.
 
 ## Tools included
 
@@ -15,11 +15,12 @@ A PowerShell 7.6 module of native sysadmin and networking tools, built on C# and
 | [`Start-BwMon`](src/ps-bandwidthmonitor/README.md) | Live per-process network bandwidth monitor with drill-down into connections | Windows only |
 | [`Start-TcpDump`](src/ps-tcpdump/README.md) | Interactive, color-coded packet capture — tcpdump-style, with optional `.pcap` export | Windows only |
 | [`Start-Mtr`](src/ps-mtr/README.md) | Live traceroute with per-hop loss and latency statistics, mtr-style — far faster than `tracert` | Windows & Linux |
+| [`Start-Watch`](src/script/start-watch_README.md#start-watch) | Run any command on an interval and refresh the output in place — a PowerShell `watch` | Windows & Linux |
 | [`Test-Time`](src/ps-ntpcheck/README.md#test-time) | Compare local or NTP source time against up to 5 remote NTP servers, with configurable offset tolerance and retry | Windows & Linux |
 | [`Get-NtpConf`](src/ps-ntpcheck/README.md#get-ntpconf) | Read the current time, time zone, and active NTP reference as a structured object | Windows & Linux |
 | [`Set-NtpConf`](src/ps-ntpcheck/README.md#set-ntpconf) | Configure the system's NTP server(s) and restart the time service (Admin/root required) | Windows & Linux |
 | [`Get-SslInfo`](src/ps-sslcheck/README.md) | Connect to a remote host over TLS and return its certificate details, including days until expiry | Windows & Linux |
-| [`Import-OpenStackRCFile`](src/script/README.md) | Parse an OpenStack RC ("openrc") shell script and import it as PowerShell environment variables | Windows & Linux |
+| [`Import-OpenStackRCFile`](src/script/README.md#import-openstackrcfile) | Parse an OpenStack RC ("openrc") shell script and import it as PowerShell environment variables | Windows & Linux |
 
 Each tool has its own README linked above with full usage details, options, and examples.
 <img width="774" height="315" alt="image" src="https://github.com/user-attachments/assets/97eef8c4-ca0f-47ed-a6ae-da8884b034b6" />
@@ -43,6 +44,10 @@ Each tool has its own README linked above with full usage details, options, and 
 **`Start-Mtr`:**
 - **Windows:** no additional dependencies, and no elevation required — the trace is implemented directly against the Windows ICMP API
 - **Linux:** requires the `mtr` binary (`sudo apt install mtr-tiny` or `sudo dnf install mtr`), which `Start-Mtr` delegates to
+
+**`Start-Watch` (Windows & Linux):**
+- No additional dependencies — pure PowerShell
+- Needs an interactive console; it cannot run with redirected output, since it repositions the cursor to redraw
 
 **`Test-Time` / `Get-NtpConf` (Windows & Linux):**
 - No additional dependencies — query NTP servers/status directly, no packet capture required
@@ -84,6 +89,12 @@ Start-Mtr 4.2.2.4
 # Same, without reverse-DNS lookups, bound to a specific interface
 Start-Mtr -Target 4.2.2.4 -NoDns -Interface Ethernet
 
+# Re-run any command on an interval, refreshing in place (Ctrl+C to stop)
+Start-Watch -WaitSeconds 5 -Command "Resolve-DnsName -Name example.com -Server 8.8.8.8"
+
+# Watch another ps-AdminTools command for continuous monitoring
+Start-Watch -WaitSeconds 30 -Command "Test-Time -Remote time.windows.com"
+
 # Compare local clock against an NTP server (Windows or Linux)
 Test-Time -Remote time.windows.com
 
@@ -111,7 +122,8 @@ Import-OpenStackRCFile -Path .\Fanap-kish.sh
 ps-AdminTools/
 ├── Bin/                      # Compiled DLLs + loaded scripts, used by the module at runtime
 │   ├── en-US/                 # Cmdlet help (MAML) for binary modules
-│   └── Import-OpenStackRCFile.ps1   # Copied here from src/script/ - see note below
+│   ├── Import-OpenStackRCFile.ps1   # Copied here from src/script/ - see note below
+│   └── Start-Watch.ps1              # Copied here from src/script/ - see note below
 ├── src/
 │   ├── ps-bandwidthmonitor/  # C# source for Start-BwMon
 │   ├── ps-tcpdump/           # C# source for Start-TcpDump
@@ -119,14 +131,15 @@ ps-AdminTools/
 │   ├── ps-ntpcheck/          # C# source for Test-Time, Get-NtpConf, Set-NtpConf (cross-platform)
 │   ├── ps-sslcheck/          # C# source for Get-SslInfo (cross-platform)
 │   └── script/                # Pure PowerShell script functions (cross-platform) - source of truth
-│       └── Import-OpenStackRCFile.ps1
+│       ├── Import-OpenStackRCFile.ps1
+│       └── Start-Watch.ps1
 ├── ps-AdminTools.psd1        # Module manifest
 ├── PS-AdminTools.psm1        # Module loader / exported functions
 ├── LICENSE
 └── README.md
 ```
 
-> **Note:** `src/` holds source; `Bin/` holds what the module actually loads at runtime — same relationship as the compiled DLLs. `Import-OpenStackRCFile.ps1` is edited in `src/script/`, then copied into `Bin/` (`PS-AdminTools.psm1` dot-sources it from there).
+> **Note:** `src/` holds source; `Bin/` holds what the module actually loads at runtime — same relationship as the compiled DLLs. Script functions are edited in `src/script/`, then copied into `Bin/` (`PS-AdminTools.psm1` dot-sources them from there).
 
 ## Building from source
 
@@ -144,6 +157,7 @@ cd src\ps-ntpcheck
 dotnet build -c Release
 # copy bin\Release\netstandard2.0\NtpCheck.dll -> ..\..\Bin\NtpCheck.dll
 # copy src\ps-ntpcheck\en-US\NtpCheck.dll-Help.xml -> ..\..\Bin\en-US\NtpCheck.dll-Help.xml
+# copy src\ps-ntpcheck\NtpCheck.types.ps1xml -> ..\..\Bin\NtpCheck.types.ps1xml
 ```
 
 `Get-SslInfo` builds the same way too:
@@ -158,11 +172,13 @@ And `Start-Mtr`:
 cd src\ps-mtr
 dotnet build -c Release
 # copy bin\Release\netstandard2.0\MtrCheck.dll -> ..\..\Bin\MtrCheck.dll
+# copy src\ps-mtr\en-US\MtrCheck.dll-Help.xml -> ..\..\Bin\en-US\MtrCheck.dll-Help.xml
 ```
 
-`src/script/` holds plain PowerShell script functions (like `Import-OpenStackRCFile`) that don't need compiling. To update one, edit the `.ps1` file in `src/script/`, then copy it into `Bin/`:
+`src/script/` holds plain PowerShell script functions (`Import-OpenStackRCFile`, `Start-Watch`) that don't need compiling. To update one, edit the `.ps1` file in `src/script/`, then copy it into `Bin/`:
 ```powershell
 Copy-Item .\src\script\Import-OpenStackRCFile.ps1 -Destination .\Bin -Force
+Copy-Item .\src\script\Start-Watch.ps1 -Destination .\Bin -Force
 ```
 
 Then reload the module:
@@ -172,6 +188,9 @@ Import-Module ps-AdminTools -Force
 
 ## Contributing
 Issues and pull requests are welcome. If you run into a bug, please include your PowerShell version (`$PSVersionTable`), OS/build, and — for `Start-BwMon`/`Start-TcpDump` — your Npcap version.
+
+## Credits
+`Start-Watch` is based on [`Watch-Command`](https://github.com/TechDufus/AdminToolkit) by Matthew J. DeGarmo (@TechDufus), adapted for this module.
 
 ## License
 Distributed under the MIT License. See [LICENSE](LICENSE) for details.
