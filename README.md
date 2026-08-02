@@ -28,6 +28,7 @@ Each tool has its own README linked above with full usage details, options, and 
 <img width="494" height="168" alt="image" src="https://github.com/user-attachments/assets/09550335-e3e6-42bc-9fdd-f840da9ac530" />
 <img width="671" height="181" alt="image" src="https://github.com/user-attachments/assets/282231b7-a938-453b-95c7-8ea72780f2da" />
 <img width="1022" height="398" alt="image" src="https://github.com/user-attachments/assets/1a49753e-d68f-4fe5-91ab-d041d02a4ed6" />
+<img width="891" height="485" alt="image" src="https://github.com/user-attachments/assets/3d1c309a-b45c-4b85-8b35-2f4a685afba7" />
 
 
 
