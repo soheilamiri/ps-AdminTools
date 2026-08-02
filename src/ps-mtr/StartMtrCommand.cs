@@ -62,6 +62,36 @@ namespace PSAdminTools.Mtr
         [ValidateRange(100, 10000)]
         public int Timeout { get; set; } = 1000;
 
+        /// <summary>
+        /// How many probes may be in flight at once.
+        ///
+        /// Probing every TTL simultaneously looked fastest but was self-defeating: the Windows
+        /// ICMP path serialises the sends, so each one blocked for hundreds of milliseconds and
+        /// hops timed out against a 1000 ms limit even when the target answered in 0 ms. A
+        /// bounded window removes that contention while staying far quicker than tracert, which
+        /// probes strictly one hop at a time with a four-second timeout per probe.
+        /// </summary>
+        private const int MaxConcurrentProbes = 8;
+
+        private async Task<ProbeResult> ProbeWithLimitAsync(
+            SemaphoreSlim gate,
+            IPAddress target,
+            int ttl,
+            IPAddress? sourceAddress)
+        {
+            // Wait for a slot BEFORE starting the probe, so a dedicated thread is only created
+            // once there is capacity to run it.
+            await gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                return await IcmpProbe.ProbeAsync(target, ttl, Timeout, sourceAddress).ConfigureAwait(false);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
         protected override void StopProcessing()
         {
             // Ctrl+C arrives here (not via Console.CancelKeyPress) for a binary cmdlet.
@@ -249,28 +279,57 @@ namespace PSAdminTools.Mtr
             var hops = new Dictionary<int, HopStats>();
             var renderer = new MtrRenderer(Host.UI);
             int? destinationTtl = null;
+            int? unreachableTtl = null;
+            string? unreachableAddress = null;
             int cycle = 0;
+
+            // Pre-flight a single TTL=1 probe. A host on the same subnet answers at TTL 1 - no
+            // router decrements the TTL for direct delivery - so without this the first cycle
+            // sweeps all 30 TTLs to discover a path that is one hop long. Statistics from this
+            // probe are discarded; the first real cycle re-probes and records properly.
+            try
+            {
+                ProbeResult preflight = IcmpProbe
+                    .ProbeAsync(target, 1, Timeout, sourceAddress)
+                    .GetAwaiter().GetResult();
+
+                if (preflight.IsDestination)
+                {
+                    destinationTtl = 1;
+                    WriteVerbose("Target answered at TTL 1 - it is directly reachable.");
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteVerbose($"TTL 1 pre-flight failed: {ex.Message}");
+            }
 
             while (!_stopping)
             {
                 cycle++;
-                int highestTtl = destinationTtl ?? MaxHops;
+                int highestTtl = destinationTtl ?? unreachableTtl ?? MaxHops;
+                ProbeResult[] results;
 
                 var tasks = new List<Task<ProbeResult>>(highestTtl);
-                for (int ttl = 1; ttl <= highestTtl; ttl++)
+                using (var gate = new SemaphoreSlim(MaxConcurrentProbes))
                 {
-                    tasks.Add(IcmpProbe.ProbeAsync(target, ttl, Timeout, sourceAddress));
-                }
+                    for (int ttl = 1; ttl <= highestTtl; ttl++)
+                    {
+                        tasks.Add(ProbeWithLimitAsync(gate, target, ttl, sourceAddress));
+                    }
 
-                ProbeResult[] results;
-                try
-                {
-                    results = Task.WhenAll(tasks).GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    WriteVerbose($"Cycle {cycle} failed: {ex.Message}");
-                    break;
+                    ProbeResult[] gathered;
+                    try
+                    {
+                        gathered = Task.WhenAll(tasks).GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        WriteVerbose($"Cycle {cycle} failed: {ex.Message}");
+                        break;
+                    }
+
+                    results = gathered;
                 }
 
                 for (int i = 0; i < results.Length; i++)
@@ -286,6 +345,24 @@ namespace PSAdminTools.Mtr
 
                     if (result.Replied && result.Address != null)
                     {
+                        if (result.Unreachable)
+                        {
+                            // Not a hop on the path. Remember the earliest TTL that produced it so
+                            // the trace can stop there, and count this TTL as a timeout - because
+                            // no router at this position actually identified itself.
+                            if (unreachableTtl == null || ttl < unreachableTtl.Value)
+                            {
+                                unreachableTtl = ttl;
+                                unreachableAddress = result.Address;
+                                WriteVerbose(
+                                    $"Path ends at hop {ttl}: {unreachableAddress} reports {target} " +
+                                    "as unreachable.");
+                            }
+
+                            stats.RecordTimeout();
+                            continue;
+                        }
+
                         stats.RecordReply(result.Address, result.RoundTripMs, result.IsDestination);
 
                         if (result.IsDestination && (destinationTtl == null || ttl < destinationTtl.Value))
@@ -304,13 +381,43 @@ namespace PSAdminTools.Mtr
                     }
                 }
 
-                int displayLimit = destinationTtl ?? HighestRespondingTtl(hops, MaxHops);
+                bool anyReply = hops.Values.Any(h => !h.IsUnknown);
+
+                // Once the path terminus is known, discard anything recorded beyond it during the
+                // first cycle - those TTLs were probed before the terminus was discovered.
+                int? pathEnd = destinationTtl ?? unreachableTtl;
+                if (pathEnd.HasValue)
+                {
+                    foreach (int ttl in hops.Keys.Where(k => k > pathEnd.Value).ToList())
+                    {
+                        hops.Remove(ttl);
+                    }
+                }
+
+                int displayLimit = pathEnd ?? (anyReply
+                    ? HighestRespondingTtl(hops, MaxHops)
+                    : Math.Min(MaxHops, hops.Count));
+
                 List<HopStats> visible = Enumerable.Range(1, displayLimit)
                     .Where(hops.ContainsKey)
                     .Select(ttl => hops[ttl])
                     .ToList();
 
-                renderer.Render(context, cycle, visible, NoDns.IsPresent);
+                string? warning = null;
+                if (destinationTtl == null && unreachableTtl == null && !anyReply && cycle >= 2)
+                {
+                    string via = context.SourceAddress != null
+                        ? $"{context.SourceAddress} on {context.InterfaceName ?? "unknown interface"}"
+                        : "the selected source address";
+
+                    warning =
+                        $"No hop has replied after {cycle} cycles. Probes are leaving from {via}. " +
+                        "Common causes: a local firewall blocking outbound ICMP, that interface " +
+                        "having no route to the target, or the network being down. " +
+                        $"Try: ping {target}   /   Test-NetConnection {target}";
+                }
+
+                renderer.Render(context, cycle, visible, NoDns.IsPresent, warning);
 
                 if (!SleepInterruptibly(Interval * 1000))
                 {
@@ -352,10 +459,24 @@ namespace PSAdminTools.Mtr
                 try
                 {
                     IPHostEntry entry = Dns.GetHostEntry(address);
-                    if (!string.IsNullOrEmpty(entry.HostName))
+
+                    // Forward-confirm the result. Windows does not always throw when an address
+                    // has no PTR record - it can hand back an unrelated name, typically the local
+                    // machine's, which then appears as the label for a remote hop. Only trust the
+                    // name if the entry actually maps back to the address that was looked up.
+                    bool confirmed = !string.IsNullOrEmpty(entry.HostName)
+                        && entry.AddressList != null
+                        && entry.AddressList.Any(a =>
+                            string.Equals(a.ToString(), address, StringComparison.OrdinalIgnoreCase));
+
+                    if (confirmed)
                     {
                         _dnsCache[address] = entry.HostName;
                         stats.HostName = entry.HostName;
+                    }
+                    else
+                    {
+                        _dnsCache[address] = address;
                     }
                 }
                 catch (Exception)

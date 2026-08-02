@@ -9,13 +9,18 @@ if (-not (Test-Path $BinPath)) {
     throw "Bin folder not found at: $BinPath"
 }
 
-# ── Load script-based functions from Bin ───────────────────────────────────────
-$ImportOpenStackRCFilePath = Join-Path $BinPath 'Import-OpenStackRCFile.ps1'
-if (-not (Test-Path $ImportOpenStackRCFilePath)) {
-    throw "Missing required script: $ImportOpenStackRCFilePath"
+# ── Load script-based functions from Bin ──────────────────────────────────────
+# Source of truth for these lives in src\script\; they are copied into Bin\ and
+# dot-sourced from there, mirroring how the compiled DLLs are handled.
+# To add another script function, add its filename here.
+foreach ($script in @('Import-OpenStackRCFile.ps1', 'Start-Watch.ps1')) {
+    $scriptPath = Join-Path $BinPath $script
+    if (-not (Test-Path $scriptPath)) {
+        throw "Missing required script: $scriptPath"
+    }
+    . $scriptPath
+    Write-Verbose "Loaded: $scriptPath"
 }
-. $ImportOpenStackRCFilePath
-Write-Verbose "Loaded: $ImportOpenStackRCFilePath"
 
 # ── Store BinPath in AppDomain so the resolver closure can reach it ───────────
 [System.AppDomain]::CurrentDomain.SetData('SysAdminToolsBinPath', $BinPath)
@@ -40,6 +45,9 @@ if (-not [System.AppDomain]::CurrentDomain.GetData('SysAdminToolsResolver')) {
 }
 
 # ── Load DLLs in dependency order ─────────────────────────────────────────────
+# NtpCheck.dll, SslCheck.dll and MtrCheck.dll are NOT loaded here - they are binary
+# modules listed in NestedModules in the manifest, so PowerShell loads them itself
+# and registers their cmdlets automatically.
 foreach ($dll in @('PacketDotNet.dll', 'SharpPcap.dll', 'BandwidthMonitor.dll', 'ps-tcpdump.dll')) {
     $fullPath = [System.IO.Path]::Combine($BinPath, $dll)
     if (-not [System.IO.File]::Exists($fullPath)) {
@@ -191,4 +199,8 @@ function Start-TcpDump {
     }
 }
 
-Export-ModuleMember -Function 'Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile' -Cmdlet 'Test-Time', 'Get-NtpConf', 'Set-NtpConf', 'Get-SslInfo', 'Start-mtr'
+# NOTE: this explicit list OVERRIDES FunctionsToExport / CmdletsToExport in the manifest.
+# Anything omitted here stays invisible even if the manifest lists it.
+Export-ModuleMember `
+    -Function 'Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile', 'Start-Watch' `
+    -Cmdlet   'Test-Time', 'Get-NtpConf', 'Set-NtpConf', 'Get-SslInfo', 'Start-Mtr'

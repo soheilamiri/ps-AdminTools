@@ -12,12 +12,13 @@ namespace PSAdminTools.Mtr
 {
     internal readonly struct ProbeResult
     {
-        public ProbeResult(bool replied, string? address, double roundTripMs, bool isDestination)
+        public ProbeResult(bool replied, string? address, double roundTripMs, bool isDestination, bool unreachable = false)
         {
             Replied = replied;
             Address = address;
             RoundTripMs = roundTripMs;
             IsDestination = isDestination;
+            Unreachable = unreachable;
         }
 
         /// <summary>True if anything answered - either the target itself or an intermediate router.</summary>
@@ -28,6 +29,15 @@ namespace PSAdminTools.Mtr
 
         /// <summary>True only when the reply came from the trace target (end of the path).</summary>
         public bool IsDestination { get; }
+
+        /// <summary>
+        /// True when a router answered "destination unreachable" rather than "TTL expired".
+        /// These mean completely different things: TTL-expired identifies a genuine hop along the
+        /// path, whereas unreachable means this router will not forward any further, so the path
+        /// ends there. Treating the two alike made the same router appear as a hop at every TTL
+        /// that managed to reach it.
+        /// </summary>
+        public bool Unreachable { get; }
 
         public static ProbeResult Timeout() => new ProbeResult(false, null, 0d, false);
     }
@@ -88,7 +98,11 @@ namespace PSAdminTools.Mtr
                     PingReply reply = ping.Send(target, timeoutMs, Payload, options);
                     stopwatch.Stop();
 
-                    double elapsed = reply.RoundtripTime > 0
+                    // Windows only populates RoundtripTime for a successful echo. Test the status
+                    // rather than the value: a real 0 ms LAN reply also has RoundtripTime == 0,
+                    // and treating that as "unpopulated" fell back to the stopwatch and reported
+                    // hundreds of milliseconds for a host that answered instantly.
+                    double elapsed = reply.Status == IPStatus.Success
                         ? reply.RoundtripTime
                         : stopwatch.Elapsed.TotalMilliseconds;
 
@@ -98,13 +112,26 @@ namespace PSAdminTools.Mtr
                         return new ProbeResult(true, address, elapsed, IsSameAddress(reply.Address, target));
                     }
 
-                    if (reply.Status == IPStatus.TtlExpired ||
-                        reply.Status == IPStatus.DestinationHostUnreachable ||
-                        reply.Status == IPStatus.DestinationNetworkUnreachable)
+                    // A genuine intermediate hop: a router decremented the TTL to zero.
+                    if (reply.Status == IPStatus.TtlExpired)
                     {
                         if (reply.Address != null && !reply.Address.Equals(IPAddress.Any))
                         {
                             return new ProbeResult(true, reply.Address.ToString(), elapsed, false);
+                        }
+                    }
+
+                    // Not a hop: this router refuses to forward, so the path ends here. Recorded
+                    // separately so the caller can terminate the trace instead of logging this
+                    // router at every TTL that reaches it.
+                    if (reply.Status == IPStatus.DestinationHostUnreachable ||
+                        reply.Status == IPStatus.DestinationNetworkUnreachable ||
+                        reply.Status == IPStatus.DestinationPortUnreachable ||
+                        reply.Status == IPStatus.DestinationUnreachable)
+                    {
+                        if (reply.Address != null && !reply.Address.Equals(IPAddress.Any))
+                        {
+                            return new ProbeResult(true, reply.Address.ToString(), elapsed, false, unreachable: true);
                         }
                     }
 
@@ -178,9 +205,8 @@ namespace PSAdminTools.Mtr
 
                 var reply = (IcmpEchoReply)Marshal.PtrToStructure(replyBuffer, typeof(IcmpEchoReply))!;
 
-                // Same reasoning as the unbound path: the API only fills RoundTripTime for a
-                // successful echo, so fall back to the measured elapsed time for TTL-expired hops.
-                double elapsed = reply.RoundTripTime > 0
+                // Same reasoning as the unbound path: test the status, not the value.
+                double elapsed = reply.Status == IpSuccess
                     ? reply.RoundTripTime
                     : stopwatch.Elapsed.TotalMilliseconds;
 
@@ -190,14 +216,22 @@ namespace PSAdminTools.Mtr
                     return new ProbeResult(true, address.ToString(), elapsed, IsSameAddress(address, target));
                 }
 
-                if (reply.Status == IpTtlExpiredTransit ||
-                    reply.Status == IpDestHostUnreachable ||
-                    reply.Status == IpDestNetUnreachable)
+                if (reply.Status == IpTtlExpiredTransit)
                 {
                     if (reply.Address != 0)
                     {
                         var address = new IPAddress(BitConverter.GetBytes(reply.Address));
                         return new ProbeResult(true, address.ToString(), elapsed, false);
+                    }
+                }
+
+                if (reply.Status == IpDestHostUnreachable ||
+                    reply.Status == IpDestNetUnreachable)
+                {
+                    if (reply.Address != 0)
+                    {
+                        var address = new IPAddress(BitConverter.GetBytes(reply.Address));
+                        return new ProbeResult(true, address.ToString(), elapsed, false, unreachable: true);
                     }
                 }
 

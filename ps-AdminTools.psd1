@@ -1,31 +1,48 @@
 @{
     # Module identity
-    ModuleVersion     = '1.6.1'
+    ModuleVersion     = '1.6.5.perview'
     GUID              = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
     Author            = 'Soheil Darvishamiri'
     CompanyName       = 'SysAdminTools'
-    Description       = 'SysAdminTools toolkit — network bandwidth monitor, packet capture (tcpdump-style), NTP time check,windows MRT and more'
+    Description       = 'SysAdminTools toolkit - bandwidth monitor, packet capture, NTP checks, SSL certificate info, live traceroute, and more'
     PowerShellVersion = '7.6'
 
     # Root module
     RootModule        = 'PS-AdminTools.psm1'
 
-    # Binary modules loaded into this module's session state.
-    # NtpCheck.dll contains the Test-Time [Cmdlet] class - listing it here
-    # makes PowerShell auto-discover and register it as a native cmdlet.
-NestedModules   = @('Bin\NtpCheck.dll', 'Bin\SslCheck.dll', 'Bin\MtrCheck.dll')
+    # Binary modules loaded into this module's session state. PowerShell auto-discovers the
+    # [Cmdlet] classes inside each DLL and registers them as native cmdlets.
+    NestedModules     = @(
+        'Bin\NtpCheck.dll',
+        'Bin\SslCheck.dll',
+        'Bin\MtrCheck.dll'
+    )
 
-    # Exported commands
-    FunctionsToExport = @('Start-BwMon', 'Start-TcpDump', 'Import-OpenStackRCFile')
-    CmdletsToExport = @('Test-Time', 'Get-NtpConf', 'Set-NtpConf','Get-SslInfo', 'Start-mtr')
-    TypesToProcess = @('Bin\NtpCheck.types.ps1xml')
+    # Controls which properties TestTimeResult shows by default in Format-Table.
+    TypesToProcess    = @('Bin\NtpCheck.types.ps1xml')
+
+    # Exported commands. Functions come from the .ps1 files dot-sourced by the .psm1;
+    # cmdlets come from the binary modules above.
+    FunctionsToExport = @(
+        'Start-BwMon',
+        'Start-TcpDump',
+        'Import-OpenStackRCFile',
+        'Start-Watch'
+    )
+    CmdletsToExport   = @(
+        'Test-Time',
+        'Get-NtpConf',
+        'Set-NtpConf',
+        'Get-SslInfo',
+        'Start-Mtr'
+    )
     VariablesToExport = @()
     AliasesToExport   = @()
 
     # Module metadata
     PrivateData = @{
         PSData = @{
-            Tags       = @('Network', 'Bandwidth', 'Monitor', 'SysAdmin', 'TcpDump', 'PacketCapture', 'NTP', 'Time', 'SSL')
+            Tags       = @('Network', 'Bandwidth', 'Monitor', 'SysAdmin', 'TcpDump', 'PacketCapture', 'NTP', 'Time', 'SSL', 'Traceroute', 'MTR')
             ProjectUri = ''
         }
     }

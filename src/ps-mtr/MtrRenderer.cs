@@ -21,10 +21,16 @@ namespace PSAdminTools.Mtr
     }
 
     /// <summary>
-    /// Draws the live mtr-style table. When the host supports cursor positioning (Windows
-    /// Terminal, the VS Code integrated terminal, conhost) the table is redrawn in place each
-    /// cycle. When it doesn't - for example when output is piped or redirected - it falls back
-    /// to printing each cycle sequentially rather than producing escape-code garbage.
+    /// Draws the live mtr-style table, redrawing in place each cycle.
+    ///
+    /// Cursor movement uses ANSI escape sequences rather than PSHostRawUserInterface. An earlier
+    /// version set RawUI.CursorPosition directly; when that throws - which it does on more hosts
+    /// than expected - every frame fell through to sequential printing and the table appended
+    /// itself down the screen instead of refreshing. ANSI works anywhere the colour codes already
+    /// work, and is immune to the buffer scrolling out from under a saved origin.
+    ///
+    /// Each line ends with ESC[K (erase to end of line) so a shorter line never leaves fragments
+    /// of the previous frame behind, which also removes any need to know the buffer width.
     /// </summary>
     internal sealed class MtrRenderer
     {
@@ -33,34 +39,36 @@ namespace PSAdminTools.Mtr
         private const string AnsiRed = "\u001b[31m";
         private const string AnsiDim = "\u001b[90m";
         private const string AnsiReset = "\u001b[0m";
+        private const string AnsiEraseLine = "\u001b[K";
 
         private const int HostColumnWidth = 34;
 
         private readonly PSHostUserInterface _ui;
-        private readonly bool _supportsCursor;
-        private Coordinates _origin;
-        private int _lastLineCount;
+        /// <summary>
+        /// Terminal rows occupied by the previous frame - not logical lines. A line long enough
+        /// to wrap consumes more than one row, and moving the cursor up by a line count instead
+        /// left the frame drifting down the screen each cycle.
+        /// </summary>
+        private int _lastRowCount;
+        private bool _firstFrame = true;
 
         public MtrRenderer(PSHostUserInterface ui)
         {
             _ui = ui;
-
-            try
-            {
-                _origin = ui.RawUI.CursorPosition;
-                _supportsCursor = true;
-            }
-            catch (Exception)
-            {
-                // Host has no usable RawUI (redirected output, remoting, some editors).
-                _supportsCursor = false;
-            }
         }
 
-        public void Render(TraceContext context, int cycle, IReadOnlyList<HopStats> hops, bool noDns)
+        public void Render(
+            TraceContext context,
+            int cycle,
+            IReadOnlyList<HopStats> hops,
+            bool noDns,
+            string? warning)
         {
-            var plainLines = new List<string>();
-            var colouredLines = new List<string>();
+            // Plain and coloured versions are tracked in parallel: the coloured text is what gets
+            // written, but only the plain text has a meaningful length, and length is what decides
+            // how many terminal rows a line actually occupies once it wraps.
+            var plain = new List<string>();
+            var coloured = new List<string>();
 
             // Line 1: what is being tested and where the probes are leaving from.
             string interfaceText;
@@ -78,18 +86,17 @@ namespace PSAdminTools.Mtr
             }
 
             string boundNote = context.ExplicitlyBound ? " [bound]" : string.Empty;
-            string info =
+            string header =
                 $"Target {context.TargetAddress}" +
                 $"   Source {context.SourceAddress?.ToString() ?? "unknown"}" +
                 $"   Interface {interfaceText}{boundNote}";
-
-            plainLines.Add(info);
-            colouredLines.Add(info);
+            plain.Add(header);
+            coloured.Add(header);
 
             // Line 2: cycle counter and the stop hint.
-            string cycleText = $"Start-Mtr   Cycle {cycle}   Ctrl+C to stop";
-            plainLines.Add(cycleText);
-            colouredLines.Add(AnsiDim + cycleText + AnsiReset);
+            string cycleLine = $"Start-Mtr   Cycle {cycle}   Ctrl+C to stop";
+            plain.Add(cycleLine);
+            coloured.Add(AnsiDim + cycleLine + AnsiReset);
 
             string columns =
                 "Host".PadRight(HostColumnWidth + 4) +
@@ -100,27 +107,81 @@ namespace PSAdminTools.Mtr
                 "Best".PadLeft(7) +
                 "Wrst".PadLeft(7) +
                 "StDev".PadLeft(7);
-            plainLines.Add(columns);
-            colouredLines.Add(columns);
+            plain.Add(columns);
+            coloured.Add(columns);
 
             foreach (HopStats hop in hops)
             {
-                BuildRow(hop, noDns, out string plain, out string coloured);
-                plainLines.Add(plain);
-                colouredLines.Add(coloured);
+                BuildRow(hop, noDns, out string rowPlain, out string rowColoured);
+                plain.Add(rowPlain);
+                coloured.Add(rowColoured);
             }
 
-            if (_supportsCursor)
+            if (!string.IsNullOrEmpty(warning))
             {
-                RenderInPlace(plainLines, colouredLines);
+                plain.Add(string.Empty);
+                coloured.Add(string.Empty);
+
+                // Wrap explicitly. A line longer than the terminal gets width-wrapped by the
+                // console into two physical rows, but the redraw moves the cursor up by the
+                // number of LOGICAL lines - so each cycle the frame drifted down a row and left
+                // the previous header stranded on screen. Wrapping here keeps the two in step.
+                foreach (string chunk in WrapText(warning!, GetWidth() - 1))
+                {
+                    plain.Add(chunk);
+                    coloured.Add(AnsiRed + chunk + AnsiReset);
+                }
             }
-            else
+
+            Write(plain, coloured);
+        }
+
+        /// <summary>Word-wraps plain text to the given width, breaking long words if necessary.</summary>
+        private static IEnumerable<string> WrapText(string text, int width)
+        {
+            if (width < 10) { width = 10; }
+
+            var current = new StringBuilder();
+
+            foreach (string word in text.Split(' '))
             {
-                RenderSequential(colouredLines);
+                string piece = word;
+
+                // A single word longer than the line must still be broken somewhere.
+                while (piece.Length > width)
+                {
+                    if (current.Length > 0)
+                    {
+                        yield return current.ToString();
+                        current.Clear();
+                    }
+                    yield return piece.Substring(0, width);
+                    piece = piece.Substring(width);
+                }
+
+                if (current.Length == 0)
+                {
+                    current.Append(piece);
+                }
+                else if (current.Length + 1 + piece.Length <= width)
+                {
+                    current.Append(' ').Append(piece);
+                }
+                else
+                {
+                    yield return current.ToString();
+                    current.Clear();
+                    current.Append(piece);
+                }
+            }
+
+            if (current.Length > 0)
+            {
+                yield return current.ToString();
             }
         }
 
-        private void BuildRow(HopStats hop, bool noDns, out string plain, out string coloured)
+        private static void BuildRow(HopStats hop, bool noDns, out string plain, out string coloured)
         {
             string label;
             if (hop.IsUnknown)
@@ -149,10 +210,10 @@ namespace PSAdminTools.Mtr
             string worstCell = Metric(hop.IsUnknown ? (double?)null : hop.Worst);
             string stDevCell = Metric(hop.IsUnknown ? (double?)null : hop.StandardDeviation);
 
-            plain = index + hostCell + lossCell + sentCell + lastCell + avgCell + bestCell + worstCell + stDevCell;
-
             string lossColour = loss <= 0d ? AnsiGreen : (loss >= 100d ? AnsiRed : AnsiOrange);
             string colouredHost = hop.IsUnknown ? AnsiDim + hostCell + AnsiReset : hostCell;
+
+            plain = index + hostCell + lossCell + sentCell + lastCell + avgCell + bestCell + worstCell + stDevCell;
 
             coloured = index + colouredHost + lossColour + lossCell + AnsiReset +
                        sentCell + lastCell + avgCell + bestCell + worstCell + stDevCell;
@@ -172,48 +233,70 @@ namespace PSAdminTools.Mtr
             return text.PadRight(width);
         }
 
-        private void RenderInPlace(List<string> plainLines, List<string> colouredLines)
+        /// <summary>
+        /// Best-effort terminal width. Only used to work out how many rows a line occupies once
+        /// wrapped, so a wrong answer degrades the redraw rather than breaking anything.
+        /// </summary>
+        private int GetWidth()
         {
-            int bufferWidth;
             try
             {
-                _ui.RawUI.CursorPosition = _origin;
-                bufferWidth = _ui.RawUI.BufferSize.Width;
+                int width = _ui.RawUI.BufferSize.Width;
+                if (width > 0)
+                {
+                    return width;
+                }
             }
             catch (Exception)
             {
-                // Window resized or host became unavailable mid-run - degrade gracefully.
-                RenderSequential(colouredLines);
-                return;
+                // Host exposes no usable RawUI - fall through to the default.
             }
 
-            var buffer = new StringBuilder();
-            for (int i = 0; i < colouredLines.Count; i++)
-            {
-                // Pad using the PLAIN length so ANSI escape codes (zero visible width) don't
-                // throw the erase-to-end-of-line padding off.
-                int padding = Math.Max(0, bufferWidth - 1 - plainLines[i].Length);
-                buffer.Append(colouredLines[i]).Append(new string(' ', padding)).Append('\n');
-            }
-
-            // A previous frame may have been taller (a hop dropped off); blank the leftovers.
-            for (int i = colouredLines.Count; i < _lastLineCount; i++)
-            {
-                buffer.Append(new string(' ', Math.Max(0, bufferWidth - 1))).Append('\n');
-            }
-
-            _ui.Write(buffer.ToString());
-            _lastLineCount = colouredLines.Count;
+            return 120;
         }
 
-        private void RenderSequential(List<string> colouredLines)
+        private static int RowsOccupied(string plain, int width)
         {
-            var buffer = new StringBuilder();
-            foreach (string line in colouredLines)
+            if (width <= 0 || plain.Length == 0)
             {
-                buffer.Append(line).Append('\n');
+                return 1;
             }
-            buffer.Append('\n');
+
+            // A line exactly as wide as the terminal still occupies one row, hence the -1.
+            return ((plain.Length - 1) / width) + 1;
+        }
+
+        private void Write(List<string> plain, List<string> coloured)
+        {
+            int width = GetWidth();
+            var buffer = new StringBuilder();
+
+            if (!_firstFrame && _lastRowCount > 0)
+            {
+                // Move back by TERMINAL ROWS, not by logical lines. A line long enough to wrap
+                // consumes more than one row, and counting lines instead left the frame drifting
+                // down the screen a little further every cycle, stranding old headers behind it.
+                buffer.Append("\u001b[").Append(_lastRowCount).Append('A');
+            }
+
+            int rowsWritten = 0;
+            for (int i = 0; i < coloured.Count; i++)
+            {
+                buffer.Append(coloured[i]).Append(AnsiEraseLine).Append('\n');
+                rowsWritten += RowsOccupied(plain[i], width);
+            }
+
+            // The previous frame may have been taller (hops trimmed, or a warning cleared);
+            // blank the surplus rows so nothing stale is left behind.
+            for (int i = rowsWritten; i < _lastRowCount; i++)
+            {
+                buffer.Append(AnsiEraseLine).Append('\n');
+                rowsWritten++;
+            }
+
+            _lastRowCount = rowsWritten;
+            _firstFrame = false;
+
             _ui.Write(buffer.ToString());
         }
     }
