@@ -186,7 +186,11 @@ namespace PSAdminTools.Mtr
             string label;
             if (hop.IsUnknown)
             {
-                label = "???";
+                // A hop that never replied normally has no identity at all. Hop 1 is the
+                // exception: its address comes from the routing table, so it can still be named.
+                label = string.IsNullOrEmpty(hop.FallbackAddress)
+                    ? "???"
+                    : $"{hop.FallbackAddress} (gateway)";
             }
             else if (!noDns && !string.IsNullOrEmpty(hop.HostName))
             {

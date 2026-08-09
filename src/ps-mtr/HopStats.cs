@@ -26,6 +26,13 @@ namespace PSAdminTools.Mtr
         /// <summary>Resolved reverse-DNS name, when available and -NoDns was not used.</summary>
         public string? HostName { get; set; }
 
+        /// <summary>
+        /// Address known from a source other than this hop's own replies - currently only the
+        /// default gateway at hop 1, read from the routing table. Used for display when the hop
+        /// has never answered, so a silent gateway shows its address rather than "???".
+        /// </summary>
+        public string? FallbackAddress { get; set; }
+
         public int Sent { get; private set; }
         public int Received { get; private set; }
         public double Last { get; private set; }

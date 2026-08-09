@@ -349,6 +349,46 @@ namespace PSAdminTools.Mtr
             return (null, null);
         }
 
+        /// <summary>
+        /// Returns the default gateway of the interface that owns the given local address.
+        ///
+        /// This is how hop 1 can still be identified when it refuses to send TTL-exceeded
+        /// messages: normally a hop's address is learned only from its own reply, but the first
+        /// hop is already known from the routing table, so a silent gateway does not have to
+        /// display as an anonymous "???".
+        /// </summary>
+        public static IPAddress? GetGatewayForAddress(IPAddress localAddress)
+        {
+            try
+            {
+                foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    IPInterfaceProperties properties = nic.GetIPProperties();
+
+                    bool owns = properties.UnicastAddresses
+                        .Any(u => u.Address.Equals(localAddress));
+
+                    if (!owns)
+                    {
+                        continue;
+                    }
+
+                    return properties.GatewayAddresses
+                        .Select(g => g.Address)
+                        .FirstOrDefault(a =>
+                            a != null &&
+                            a.AddressFamily == AddressFamily.InterNetwork &&
+                            !a.Equals(IPAddress.Any));
+                }
+            }
+            catch (Exception)
+            {
+                // No usable adapter information - hop 1 simply stays unlabelled.
+            }
+
+            return null;
+        }
+
         public static string[] GetInterfaceNames()
         {
             return NetworkInterface.GetAllNetworkInterfaces()

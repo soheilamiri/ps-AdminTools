@@ -73,6 +73,21 @@ namespace PSAdminTools.Mtr
         /// </summary>
         private const int MaxConcurrentProbes = 8;
 
+        /// <summary>
+        /// How many consecutive silent hops end the search, mirroring mtr's MAX_UNKNOWN_HOSTS.
+        /// Five routers in a row returning nothing means the path is either dead or filtered from
+        /// that point on, so probing the remaining TTLs yields no further information - it just
+        /// fills the screen with identical "???" rows.
+        /// </summary>
+        private const int MaxUnknownHosts = 5;
+
+        /// <summary>
+        /// Pause between cycles while the frontier is still expanding. The TTL grows one hop per
+        /// cycle, as in mtr, so waiting the full -Interval during discovery would make a twelve
+        /// hop path take twelve seconds to appear. Once the path settles, -Interval applies.
+        /// </summary>
+        private const int DiscoveryIntervalMs = 250;
+
         private async Task<ProbeResult> ProbeWithLimitAsync(
             SemaphoreSlim gate,
             IPAddress target,
@@ -261,10 +276,12 @@ namespace PSAdminTools.Mtr
             IPAddress? reportedSource = sourceAddress ?? IcmpProbe.GetSourceAddressForTarget(target);
             string? interfaceName = null;
             int? interfaceIndex = null;
+            IPAddress? gateway = null;
 
             if (reportedSource != null)
             {
                 (interfaceName, interfaceIndex) = IcmpProbe.GetInterfaceInfo(reportedSource);
+                gateway = IcmpProbe.GetGatewayForAddress(reportedSource);
             }
 
             var context = new TraceContext
@@ -282,6 +299,11 @@ namespace PSAdminTools.Mtr
             int? unreachableTtl = null;
             string? unreachableAddress = null;
             int cycle = 0;
+
+            // The furthest TTL probed so far. mtr starts at hop 1 and extends the frontier one
+            // hop at a time rather than sweeping every TTL up front, so the display only ever
+            // shows hops that have actually been looked at.
+            int frontier = 1;
 
             // Pre-flight a single TTL=1 probe. A host on the same subnet answers at TTL 1 - no
             // router decrements the TTL for direct delivery - so without this the first cycle
@@ -307,7 +329,7 @@ namespace PSAdminTools.Mtr
             while (!_stopping)
             {
                 cycle++;
-                int highestTtl = destinationTtl ?? unreachableTtl ?? MaxHops;
+                int highestTtl = destinationTtl ?? unreachableTtl ?? frontier;
                 ProbeResult[] results;
 
                 var tasks = new List<Task<ProbeResult>>(highestTtl);
@@ -383,6 +405,15 @@ namespace PSAdminTools.Mtr
 
                 bool anyReply = hops.Values.Any(h => !h.IsUnknown);
 
+                // Hop 1 is the one hop identifiable without a reply. Only label it when the
+                // target is genuinely beyond the gateway: if the target is on-link the
+                // pre-flight sets destinationTtl to 1, and hop 1 is the target itself, not the
+                // gateway - labelling it then would be wrong.
+                if (gateway != null && destinationTtl != 1 && hops.TryGetValue(1, out HopStats? firstHop))
+                {
+                    firstHop.FallbackAddress = gateway.ToString();
+                }
+
                 // Once the path terminus is known, discard anything recorded beyond it during the
                 // first cycle - those TTLs were probed before the terminus was discovered.
                 int? pathEnd = destinationTtl ?? unreachableTtl;
@@ -394,24 +425,34 @@ namespace PSAdminTools.Mtr
                     }
                 }
 
-                int displayLimit = pathEnd ?? (anyReply
-                    ? HighestRespondingTtl(hops, MaxHops)
-                    : Math.Min(MaxHops, hops.Count));
+                int displayLimit = pathEnd ?? frontier;
 
                 List<HopStats> visible = Enumerable.Range(1, displayLimit)
                     .Where(hops.ContainsKey)
                     .Select(ttl => hops[ttl])
                     .ToList();
 
+                // Decide whether to look one hop further. Two conditions stop the search, both
+                // taken from mtr: reaching the path terminus, or hitting MaxUnknownHosts silent
+                // hops in a row.
+                int trailingUnknown = TrailingUnknownCount(hops, frontier);
+                bool searchExhausted = trailingUnknown >= MaxUnknownHosts;
+                bool stillDiscovering = pathEnd == null && !searchExhausted && frontier < MaxHops;
+
+                if (stillDiscovering)
+                {
+                    frontier++;
+                }
+
                 string? warning = null;
-                if (destinationTtl == null && unreachableTtl == null && !anyReply && cycle >= 2)
+                if (destinationTtl == null && unreachableTtl == null && !anyReply && searchExhausted)
                 {
                     string via = context.SourceAddress != null
                         ? $"{context.SourceAddress} on {context.InterfaceName ?? "unknown interface"}"
                         : "the selected source address";
 
                     warning =
-                        $"No hop has replied after {cycle} cycles. Probes are leaving from {via}. " +
+                        $"Gave up after {frontier} silent hops. Probes are leaving from {via}. " +
                         "Common causes: a local firewall blocking outbound ICMP, that interface " +
                         "having no route to the target, or the network being down. " +
                         $"Try: ping {target}   /   Test-NetConnection {target}";
@@ -419,24 +460,34 @@ namespace PSAdminTools.Mtr
 
                 renderer.Render(context, cycle, visible, NoDns.IsPresent, warning);
 
-                if (!SleepInterruptibly(Interval * 1000))
+                // Move quickly while the frontier is still growing; settle to -Interval once the
+                // path is established, so the statistics accumulate at the requested rate.
+                int pauseMs = stillDiscovering ? DiscoveryIntervalMs : Interval * 1000;
+                if (!SleepInterruptibly(pauseMs))
                 {
                     break;
                 }
             }
         }
 
-        private static int HighestRespondingTtl(Dictionary<int, HopStats> hops, int maxHops)
+        /// <summary>
+        /// Counts consecutive silent hops ending at the frontier. A hop that has answered at any
+        /// point resets the run, so one flaky router mid-path does not end the search early.
+        /// </summary>
+        private static int TrailingUnknownCount(Dictionary<int, HopStats> hops, int frontier)
         {
-            int highest = 1;
-            foreach (KeyValuePair<int, HopStats> entry in hops)
+            int count = 0;
+
+            for (int ttl = frontier; ttl >= 1; ttl--)
             {
-                if (!entry.Value.IsUnknown && entry.Key > highest)
+                if (hops.TryGetValue(ttl, out HopStats? stats) && !stats.IsUnknown)
                 {
-                    highest = entry.Key;
+                    break;
                 }
+                count++;
             }
-            return Math.Min(highest, maxHops);
+
+            return count;
         }
 
         private void QueueDnsLookup(HopStats stats, string address)
