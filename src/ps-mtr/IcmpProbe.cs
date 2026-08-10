@@ -12,13 +12,14 @@ namespace PSAdminTools.Mtr
 {
     internal readonly struct ProbeResult
     {
-        public ProbeResult(bool replied, string? address, double roundTripMs, bool isDestination, bool unreachable = false)
+        public ProbeResult(bool replied, string? address, double roundTripMs, bool isDestination, bool unreachable = false, bool tcpPortClosed = false)
         {
             Replied = replied;
             Address = address;
             RoundTripMs = roundTripMs;
             IsDestination = isDestination;
             Unreachable = unreachable;
+            TcpPortClosed = tcpPortClosed;
         }
 
         /// <summary>True if anything answered - either the target itself or an intermediate router.</summary>
@@ -38,6 +39,12 @@ namespace PSAdminTools.Mtr
         /// that managed to reach it.
         /// </summary>
         public bool Unreachable { get; }
+
+        /// <summary>
+        /// TCP mode only: the target answered with RST, so the host is reachable but the port is
+        /// closed. Still counts as reaching the destination.
+        /// </summary>
+        public bool TcpPortClosed { get; }
 
         public static ProbeResult Timeout() => new ProbeResult(false, null, 0d, false);
     }
@@ -75,15 +82,98 @@ namespace PSAdminTools.Mtr
             IPAddress target,
             int ttl,
             int timeoutMs,
-            IPAddress? sourceAddress)
+            IPAddress? sourceAddress,
+            int? tcpPort = null,
+            int localPort = 0)
         {
             return Task.Factory.StartNew(
-                () => sourceAddress != null
-                    ? ProbeBound(target, ttl, timeoutMs, sourceAddress)
-                    : ProbeUnbound(target, ttl, timeoutMs),
+                () =>
+                {
+                    if (tcpPort.HasValue)
+                    {
+                        return ProbeTcp(target, ttl, tcpPort.Value, timeoutMs, sourceAddress, localPort);
+                    }
+
+                    return sourceAddress != null
+                        ? ProbeBound(target, ttl, timeoutMs, sourceAddress)
+                        : ProbeUnbound(target, ttl, timeoutMs);
+                },
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// TTL-limited TCP connect probe, for paths where ICMP echo is filtered.
+        ///
+        /// This CANNOT identify intermediate routers. When a router drops the packet it answers
+        /// with an ICMP Time Exceeded message addressed to the IP layer, and a failed connect()
+        /// reports only that it failed - never which router was responsible. Reading that would
+        /// need a raw ICMP socket, which Windows restricts to Administrator.
+        ///
+        /// What it can establish is the destination: a completed handshake means the port is
+        /// open, and a refusal (RST) still proves the host itself answered, just with the port
+        /// closed. Both identify the target and give a usable round-trip time. Every hop before
+        /// it stays anonymous.
+        /// </summary>
+        private static ProbeResult ProbeTcp(IPAddress target, int ttl, int port, int timeoutMs, IPAddress? sourceAddress, int localPort)
+        {
+            using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                try
+                {
+                    socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.IpTimeToLive, ttl);
+
+                    // Binding matters for two reasons: it selects the outgoing interface when
+                    // -Interface was given, and the fixed local port is what lets a captured ICMP
+                    // Time Exceeded be traced back to the TTL that provoked it, since the reply
+                    // quotes this port in the original headers it carries.
+                    if (sourceAddress != null || localPort != 0)
+                    {
+                        socket.Bind(new IPEndPoint(sourceAddress ?? IPAddress.Any, localPort));
+                    }
+
+                    var stopwatch = Stopwatch.StartNew();
+
+                    Task connectTask = socket.ConnectAsync(new IPEndPoint(target, port));
+                    bool finished = connectTask.Wait(timeoutMs);
+                    stopwatch.Stop();
+
+                    if (!finished)
+                    {
+                        // Windows deliberately does not abort a connect on a transient ICMP
+                        // error, so an expired TTL simply hangs until this timeout.
+                        return ProbeResult.Timeout();
+                    }
+
+                    if (connectTask.IsFaulted)
+                    {
+                        SocketException? socketException = connectTask.Exception?
+                            .InnerExceptions
+                            .OfType<SocketException>()
+                            .FirstOrDefault();
+
+                        if (socketException?.SocketErrorCode == SocketError.ConnectionRefused)
+                        {
+                            // An RST is still the target answering: the host is reachable and
+                            // this is the end of the path, the port just is not listening.
+                            return new ProbeResult(
+                                true, target.ToString(), stopwatch.Elapsed.TotalMilliseconds,
+                                isDestination: true, unreachable: false, tcpPortClosed: true);
+                        }
+
+                        return ProbeResult.Timeout();
+                    }
+
+                    return new ProbeResult(
+                        true, target.ToString(), stopwatch.Elapsed.TotalMilliseconds,
+                        isDestination: true);
+                }
+                catch (Exception)
+                {
+                    return ProbeResult.Timeout();
+                }
+            }
         }
 
         private static ProbeResult ProbeUnbound(IPAddress target, int ttl, int timeoutMs)

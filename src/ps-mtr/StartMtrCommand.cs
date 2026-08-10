@@ -88,6 +88,14 @@ namespace PSAdminTools.Mtr
         /// </summary>
         private const int DiscoveryIntervalMs = 250;
 
+        /// <summary>
+        /// First local port used by TCP probes; each TTL takes BaseTcpLocalPort + ttl. Fixed,
+        /// known ports are what allow a captured ICMP Time Exceeded - which quotes the original
+        /// source port - to be attributed to the hop that produced it. 33434 is the traditional
+        /// traceroute base.
+        /// </summary>
+        private const int BaseTcpLocalPort = 33434;
+
         private async Task<ProbeResult> ProbeWithLimitAsync(
             SemaphoreSlim gate,
             IPAddress target,
@@ -99,13 +107,29 @@ namespace PSAdminTools.Mtr
             await gate.WaitAsync().ConfigureAwait(false);
             try
             {
-                return await IcmpProbe.ProbeAsync(target, ttl, Timeout, sourceAddress).ConfigureAwait(false);
+                int localPort = TcpPort.HasValue ? BaseTcpLocalPort + ttl : 0;
+                return await IcmpProbe
+                    .ProbeAsync(target, ttl, Timeout, sourceAddress, TcpPort, localPort)
+                    .ConfigureAwait(false);
             }
             finally
             {
                 gate.Release();
             }
         }
+
+        /// <summary>
+        /// Trace using TTL-limited TCP connects to this port instead of ICMP echo, for paths
+        /// where ICMP is filtered.
+        ///
+        /// Intermediate hops cannot be identified in this mode and always display as "???" -
+        /// naming them requires reading ICMP Time Exceeded messages from a raw socket, which
+        /// Windows restricts to Administrator. What this does establish is how far away the
+        /// target is and whether the port answers.
+        /// </summary>
+        [Parameter]
+        [ValidateRange(1, 65535)]
+        public int? TcpPort { get; set; }
 
         protected override void StopProcessing()
         {
@@ -290,11 +314,41 @@ namespace PSAdminTools.Mtr
                 SourceAddress = reportedSource,
                 InterfaceName = interfaceName,
                 InterfaceIndex = interfaceIndex,
-                ExplicitlyBound = sourceAddress != null
+                ExplicitlyBound = sourceAddress != null,
+                TcpPort = TcpPort
             };
 
             var hops = new Dictionary<int, HopStats>();
             var renderer = new MtrRenderer(Host.UI);
+
+            // TCP mode can only name hops if the ICMP Time Exceeded replies are captured; a TCP
+            // socket cannot see them. Failure here is not fatal - the trace continues with
+            // anonymous hops, exactly as before this was added.
+            CaptureBridge? capture = null;
+            if (TcpPort.HasValue && reportedSource != null)
+            {
+                capture = CaptureBridge.TryStart(reportedSource.ToString(), message => WriteWarning(message));
+            }
+
+            try
+            {
+                RunTraceLoop(target, sourceAddress, gateway, context, hops, renderer, capture);
+            }
+            finally
+            {
+                capture?.Dispose();
+            }
+        }
+
+        private void RunTraceLoop(
+            IPAddress target,
+            IPAddress? sourceAddress,
+            IPAddress? gateway,
+            TraceContext context,
+            Dictionary<int, HopStats> hops,
+            MtrRenderer renderer,
+            CaptureBridge? capture)
+        {
             int? destinationTtl = null;
             int? unreachableTtl = null;
             string? unreachableAddress = null;
@@ -312,7 +366,7 @@ namespace PSAdminTools.Mtr
             try
             {
                 ProbeResult preflight = IcmpProbe
-                    .ProbeAsync(target, 1, Timeout, sourceAddress)
+                    .ProbeAsync(target, 1, Timeout, sourceAddress, TcpPort)
                     .GetAwaiter().GetResult();
 
                 if (preflight.IsDestination)
@@ -333,6 +387,7 @@ namespace PSAdminTools.Mtr
                 ProbeResult[] results;
 
                 var tasks = new List<Task<ProbeResult>>(highestTtl);
+                DateTime cycleSentUtc = DateTime.UtcNow;
                 using (var gate = new SemaphoreSlim(MaxConcurrentProbes))
                 {
                     for (int ttl = 1; ttl <= highestTtl; ttl++)
@@ -387,6 +442,11 @@ namespace PSAdminTools.Mtr
 
                         stats.RecordReply(result.Address, result.RoundTripMs, result.IsDestination);
 
+                        if (result.IsDestination && TcpPort.HasValue)
+                        {
+                            context.TcpStatus = result.TcpPortClosed ? "closed (RST)" : "open";
+                        }
+
                         if (result.IsDestination && (destinationTtl == null || ttl < destinationTtl.Value))
                         {
                             destinationTtl = ttl;
@@ -399,7 +459,30 @@ namespace PSAdminTools.Mtr
                     }
                     else
                     {
-                        stats.RecordTimeout();
+                        // The socket learned nothing, but in TCP mode a router may still have
+                        // answered with an ICMP Time Exceeded that only the capture can see. That
+                        // reply quotes this probe's local port, which is how it is matched here.
+                        bool identified = false;
+
+                        if (capture != null && TcpPort.HasValue)
+                        {
+                            int localPort = BaseTcpLocalPort + ttl;
+                            if (capture.TryTakeHop(localPort, cycleSentUtc, out string router, out double rttMs))
+                            {
+                                stats.RecordReply(router, rttMs, isDestination: false);
+                                identified = true;
+
+                                if (!NoDns.IsPresent)
+                                {
+                                    QueueDnsLookup(stats, router);
+                                }
+                            }
+                        }
+
+                        if (!identified)
+                        {
+                            stats.RecordTimeout();
+                        }
                     }
                 }
 
@@ -436,7 +519,14 @@ namespace PSAdminTools.Mtr
                 // taken from mtr: reaching the path terminus, or hitting MaxUnknownHosts silent
                 // hops in a row.
                 int trailingUnknown = TrailingUnknownCount(hops, frontier);
-                bool searchExhausted = trailingUnknown >= MaxUnknownHosts;
+
+                // Without capture, every hop before the destination is silent by design in TCP
+                // mode, so the consecutive-silence rule would abandon the search at hop 5. With
+                // capture identifying routers, silence means the same thing it does in ICMP mode
+                // - the path stops there - so the rule applies and the trace halts at the
+                // blocking hop instead of crawling to MaxHops.
+                bool silenceIsMeaningful = !TcpPort.HasValue || capture != null;
+                bool searchExhausted = silenceIsMeaningful && trailingUnknown >= MaxUnknownHosts;
                 bool stillDiscovering = pathEnd == null && !searchExhausted && frontier < MaxHops;
 
                 if (stillDiscovering)

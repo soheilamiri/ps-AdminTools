@@ -18,6 +18,12 @@ namespace PSAdminTools.Mtr
 
         /// <summary>True when -Interface was supplied, so probes are explicitly source-bound.</summary>
         public bool ExplicitlyBound { get; set; }
+
+        /// <summary>Set when tracing with TTL-limited TCP connects instead of ICMP echo.</summary>
+        public int? TcpPort { get; set; }
+
+        /// <summary>TCP mode only: "open" or "closed (RST)" once the destination answers.</summary>
+        public string? TcpStatus { get; set; }
     }
 
     /// <summary>
@@ -94,7 +100,10 @@ namespace PSAdminTools.Mtr
             coloured.Add(header);
 
             // Line 2: cycle counter and the stop hint.
-            string cycleLine = $"Start-Mtr   Cycle {cycle}   Ctrl+C to stop";
+            string modeText = context.TcpPort.HasValue
+                ? $"   TCP :{context.TcpPort.Value}{(context.TcpStatus != null ? $" {context.TcpStatus}" : string.Empty)}"
+                : string.Empty;
+            string cycleLine = $"Start-Mtr   Cycle {cycle}{modeText}   Ctrl+C to stop";
             plain.Add(cycleLine);
             coloured.Add(AnsiDim + cycleLine + AnsiReset);
 

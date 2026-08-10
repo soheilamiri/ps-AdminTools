@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Deliberately NOT netstandard2.0. SharpPcap 6.x cannot run there, and re-targeting ps-mtr
+      itself would make the whole of Start-Mtr - including the cross-platform ICMP mode and the
+      Linux mtr delegation - Windows-only. Keeping the capture code in its own Windows assembly
+      means MtrCheck.dll stays netstandard2.0 and loads this one reflectively, only when
+      -TcpPort is used on Windows with Npcap present.
+
+      Target and package versions match src/ps-tcpdump so both use the same SharpPcap API.
+    -->
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
+    <AssemblyName>MtrCapture</AssemblyName>
+    <RootNamespace>PSAdminTools.MtrCapture</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Company>PS-AdminTools</Company>
+    <Product>PS-AdminTools MtrCapture Module</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpPcap" Version="6.*" />
+    <PackageReference Include="PacketDotNet" Version="1.*" />
+  </ItemGroup>
+
+</Project>

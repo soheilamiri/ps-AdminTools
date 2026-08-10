@@ -14,7 +14,7 @@
       </maml:copyright>
       <command:verb>Start</command:verb>
       <command:noun>Mtr</command:noun>
-      <dev:version>1.0.0</dev:version>
+      <dev:version>1.1.0</dev:version>
     </command:details>
 
     <maml:description>
@@ -28,13 +28,23 @@
         The header line shows the target address, the local source address probes are sent from,
         and the name and IPv4 index of the interface that owns it. Without -Interface this is the
         address the operating system's routing table selects; with -Interface the header appends
-        [bound] to indicate probes are explicitly source-bound.
+        [bound] to indicate probes are explicitly source-bound. In TCP mode the header also shows
+        the port and, once the target answers, whether it is open or closed.
       </maml:para>
       <maml:para>
-        On Windows the trace is implemented directly against the ICMP API and requires no elevation.
-        Every TTL in a cycle is probed in parallel, which makes it substantially faster than
-        tracert - tracert probes strictly one hop at a time with a four-second timeout per probe,
-        so a path containing unresponsive hops can take a very long time to complete.
+        The path is discovered incrementally, as mtr does: the trace begins at hop 1 and extends
+        one hop per cycle, so only hops that have actually been probed appear. The search stops
+        when the destination answers, when a router reports the destination unreachable, or after
+        five consecutive hops return nothing - five silent routers in a row means the path is dead
+        or filtered from that point, and probing further adds no information.
+      </maml:para>
+      <maml:para>
+        On Windows the trace is implemented directly against the ICMP API and requires no
+        elevation. Probes run several at a time rather than strictly sequentially, which makes it
+        substantially faster than tracert, which probes one hop at a time with a four-second
+        timeout per probe. Concurrency is deliberately bounded: probing every TTL at once causes
+        the Windows ICMP path to serialise the sends, which inflates every measured time and makes
+        responsive hops appear lost.
       </maml:para>
       <maml:para>
         On Linux and macOS, Start-Mtr delegates to the installed mtr binary and passes through the
@@ -51,6 +61,10 @@
         <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
           <maml:name>Target</maml:name>
           <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+          <maml:name>TcpPort</maml:name>
+          <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
         </command:parameter>
         <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
           <maml:name>NoDns</maml:name>
@@ -92,6 +106,37 @@
       </command:parameter>
 
       <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>TcpPort</maml:name>
+        <maml:description>
+          <maml:para>
+            Trace using TTL-limited TCP connections to this port instead of ICMP echo, equivalent
+            to mtr's -T -P options. Use this when ICMP is filtered along the path, or to find where
+            traffic to one specific service is being blocked - a firewall may drop TCP 445 while
+            passing ICMP straight through, so the two traces can end at different hops.
+          </maml:para>
+          <maml:para>
+            Windows only. A TCP socket cannot see the ICMP Time Exceeded messages routers send
+            back, so hop identities are recovered by capturing them with Npcap, through the
+            companion MtrCapture.dll that sits alongside MtrCheck.dll in the module's Bin folder.
+            If Npcap is not installed, MtrCapture.dll is missing, or the Npcap driver was installed
+            with access restricted to Administrators, Start-Mtr issues a warning and continues with
+            every intermediate hop shown as ??? - the destination is still identified, so the trace
+            still reports how far away the target is and whether the port answers.
+          </maml:para>
+          <maml:para>
+            A target that answers with RST counts as reached: the host is there, the port simply is
+            not listening. The header distinguishes this by showing "closed (RST)" rather than
+            "open".
+          </maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>None - ICMP echo is used when this is not specified</dev:defaultValue>
+      </command:parameter>
+
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
         <maml:name>NoDns</maml:name>
         <maml:description>
           <maml:para>
@@ -117,9 +162,10 @@
             description, or its ID; use Get-NetAdapter to list the available names on Windows.
           </maml:para>
           <maml:para>
-            On Windows this uses IcmpSendEcho2Ex, which accepts an explicit source address and does
-            not require Administrator privileges. If the named interface has no IPv4 address,
-            Start-Mtr reports an error listing the interfaces that do.
+            In ICMP mode this uses IcmpSendEcho2Ex, which accepts an explicit source address and
+            does not require Administrator privileges. In TCP mode the probe socket is simply bound
+            to that address. If the named interface has no IPv4 address, Start-Mtr reports an error
+            listing the interfaces that do.
           </maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
@@ -133,9 +179,10 @@
         <maml:name>MaxHops</maml:name>
         <maml:description>
           <maml:para>
-            The maximum number of hops to probe, from 1 to 255. Probing stops descending past the
-            destination as soon as it answers, so this only matters for paths where the target
-            never replies.
+            The maximum number of hops to probe, from 1 to 255. Note that the trace usually stops
+            well before this: reaching the destination, an unreachable report, or five consecutive
+            silent hops all end the search. Raising this value will not reveal hops beyond a run of
+            five silent ones.
           </maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
@@ -149,8 +196,9 @@
         <maml:name>Interval</maml:name>
         <maml:description>
           <maml:para>
-            Seconds to wait between cycles, from 1 to 60. Each cycle re-probes every hop and
-            updates the running statistics.
+            Seconds to wait between cycles, from 1 to 60, once the path has been discovered. While
+            the trace is still extending to new hops it cycles faster than this, so a long path
+            appears in a second or two rather than taking one second per hop.
           </maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
@@ -166,6 +214,11 @@
           <maml:para>
             How long to wait for each individual probe, in milliseconds, from 100 to 10000. Probes
             that do not answer within this window count as lost for that hop.
+          </maml:para>
+          <maml:para>
+            Worth raising in TCP mode. A TCP SYN retransmits when a reply is slow, so a probe with
+            a perfectly adequate TTL can still exceed the default 1000 ms and be recorded as a
+            failure, which places the destination a hop or two further out than it really is.
           </maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">Int32</command:parameterValue>
@@ -205,34 +258,52 @@
       <maml:title>Reading the results</maml:title>
       <maml:alert>
         <maml:para>
-          Loss reported on intermediate hops is frequently not real loss. Routers rate-limit how
-          quickly they generate ICMP TTL-exceeded messages, and because Start-Mtr probes every TTL
-          in parallel, that throttling appears as dropped packets. Seeing 10-40 percent on a middle
-          hop while the destination reports 0 percent is normal. The final row is the meaningful
-          figure for end-to-end loss.
+          A hop's loss figure describes only that router's willingness to answer about itself. It
+          says nothing about traffic passing through it. Generating an ICMP Time Exceeded message
+          is control-plane work that routers rate-limit aggressively or disable outright, while
+          forwarding continues untouched - it is common for a gateway to show 90 percent or more
+          here yet answer every ping normally.
+        </maml:para>
+      </maml:alert>
+      <maml:alert>
+        <maml:para>
+          The rule for telling artifact from fault: every packet reaching a later hop passed
+          through the earlier ones. If any hop below shows lower loss, the loss above it is not
+          affecting traffic. Real loss starts at some hop and persists through every hop after it,
+          including the destination. The final row is the meaningful figure for end-to-end loss.
         </maml:para>
       </maml:alert>
       <maml:alert>
         <maml:para>
           For the same reason, an intermediate hop can report higher latency than the destination
-          beyond it. Generating a TTL-exceeded reply is low-priority work for a router, so the
-          measured time includes that delay rather than reflecting the real forwarding path. Again,
-          the final row is the meaningful figure for end-to-end latency.
+          beyond it. Generating a TTL-exceeded reply is low-priority work, so the measured time
+          includes that delay rather than reflecting the real forwarding path. Again, the final row
+          is the meaningful figure.
         </maml:para>
       </maml:alert>
       <maml:alert>
         <maml:para>
-          Hops shown as ??? with 100 percent loss are routers configured not to send ICMP
-          TTL-exceeded messages at all. This does not indicate that traffic is being dropped there;
-          if later hops and the destination are answering, the path is working.
+          Hops shown as ??? are routers that never answered, usually because they are configured
+          not to send ICMP TTL-exceeded messages at all. Hop 1 is the exception: its address is
+          read from the routing table, so a silent gateway is still shown by address and labelled
+          (gateway).
         </maml:para>
       </maml:alert>
       <maml:alert>
         <maml:para>
-          The table redraws in place when the host supports cursor positioning, which includes
-          Windows Terminal, conhost, and the VS Code integrated terminal. When output is redirected
-          or piped, Start-Mtr falls back to printing each cycle sequentially instead of emitting
-          escape sequences the destination cannot render.
+          In TCP mode the round-trip times for intermediate hops are coarse. They are derived from
+          when the captured reply is delivered by the packet driver, which batches deliveries, so
+          the figures can be quantised to a much larger interval than the true latency. Treat TCP
+          mode as authoritative for the path and for loss, and use ICMP mode when latency
+          measurements matter.
+        </maml:para>
+      </maml:alert>
+      <maml:alert>
+        <maml:para>
+          The table redraws in place using ANSI cursor movement, which works in Windows Terminal,
+          conhost, and the VS Code integrated terminal. When output is redirected or piped, it
+          falls back to printing each cycle sequentially rather than emitting escape sequences the
+          destination cannot render.
         </maml:para>
       </maml:alert>
     </maml:alertSet>
@@ -243,12 +314,28 @@
         <maml:title>-------------------------- EXAMPLE 1 --------------------------</maml:title>
         <dev:code>Start-Mtr 4.2.2.4</dev:code>
         <dev:remarks>
-          <maml:para>Traces to 4.2.2.4 with the defaults: up to 30 hops, one cycle per second, a one-second per-probe timeout, and reverse DNS enabled.</maml:para>
+          <maml:para>Traces to 4.2.2.4 with the defaults: ICMP echo, up to 30 hops, a one-second cycle once the path settles, a one-second per-probe timeout, and reverse DNS enabled.</maml:para>
         </dev:remarks>
       </command:example>
 
       <command:example>
         <maml:title>-------------------------- EXAMPLE 2 --------------------------</maml:title>
+        <dev:code>Start-Mtr -TcpPort 25 -Target mail.example.com</dev:code>
+        <dev:remarks>
+          <maml:para>Traces using TCP connections to port 25, the equivalent of mtr -T -P 25. Use this to find which hop blocks a specific service, rather than where ICMP stops.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 3 --------------------------</maml:title>
+        <dev:code>Start-Mtr -TcpPort 445 -Target fileserver.example.com -Timeout 3000</dev:code>
+        <dev:remarks>
+          <maml:para>Traces TCP 445 with a longer per-probe timeout. Raising the timeout in TCP mode avoids SYN retransmission making an adequate TTL look like a failure, which would place the destination further out than it really is.</maml:para>
+        </dev:remarks>
+      </command:example>
+
+      <command:example>
+        <maml:title>-------------------------- EXAMPLE 4 --------------------------</maml:title>
         <dev:code>Start-Mtr -Target google.com -NoDns</dev:code>
         <dev:remarks>
           <maml:para>Traces to google.com showing IP addresses only, with no reverse-DNS lookups.</maml:para>
@@ -256,7 +343,7 @@
       </command:example>
 
       <command:example>
-        <maml:title>-------------------------- EXAMPLE 3 --------------------------</maml:title>
+        <maml:title>-------------------------- EXAMPLE 5 --------------------------</maml:title>
         <dev:code>Get-NetAdapter | Select-Object Name, Status
 Start-Mtr -Target 4.2.2.4 -Interface "Ethernet"</dev:code>
         <dev:remarks>
@@ -265,15 +352,7 @@ Start-Mtr -Target 4.2.2.4 -Interface "Ethernet"</dev:code>
       </command:example>
 
       <command:example>
-        <maml:title>-------------------------- EXAMPLE 4 --------------------------</maml:title>
-        <dev:code>Start-Mtr -Target 192.168.1.1 -MaxHops 5 -Timeout 500</dev:code>
-        <dev:remarks>
-          <maml:para>Traces a nearby target, capping the trace at five hops and halving the per-probe timeout so unresponsive hops are given up on sooner.</maml:para>
-        </dev:remarks>
-      </command:example>
-
-      <command:example>
-        <maml:title>-------------------------- EXAMPLE 5 --------------------------</maml:title>
+        <maml:title>-------------------------- EXAMPLE 6 --------------------------</maml:title>
         <dev:code>Start-Mtr -Target 4.2.2.4 -Interval 5</dev:code>
         <dev:remarks>
           <maml:para>Probes once every five seconds instead of every second, for a long-running check that puts less traffic on the path.</maml:para>
