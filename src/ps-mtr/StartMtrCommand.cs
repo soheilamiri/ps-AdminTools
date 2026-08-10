@@ -34,6 +34,14 @@ namespace PSAdminTools.Mtr
         private readonly ConcurrentDictionary<string, string> _dnsCache =
             new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// When each TTL's probe was actually sent, keyed by TTL. Concurrency is bounded, so
+        /// probes for later hops wait for a free slot and leave measurably after the cycle began -
+        /// timing them from the start of the cycle would add that queueing delay to their latency.
+        /// </summary>
+        private readonly ConcurrentDictionary<int, DateTime> _probeSentUtc =
+            new ConcurrentDictionary<int, DateTime>();
+
         /// <summary>Hostname or IP address to trace to.</summary>
         [Parameter(Mandatory = true, Position = 0)]
         [ValidateNotNullOrEmpty]
@@ -107,6 +115,10 @@ namespace PSAdminTools.Mtr
             await gate.WaitAsync().ConfigureAwait(false);
             try
             {
+                // Recorded here, not before the wait: this is the moment the probe actually goes
+                // out, so latency derived from it excludes time spent queued for a slot.
+                _probeSentUtc[ttl] = DateTime.UtcNow;
+
                 int localPort = TcpPort.HasValue ? BaseTcpLocalPort + ttl : 0;
                 return await IcmpProbe
                     .ProbeAsync(target, ttl, Timeout, sourceAddress, TcpPort, localPort)
@@ -467,7 +479,11 @@ namespace PSAdminTools.Mtr
                         if (capture != null && TcpPort.HasValue)
                         {
                             int localPort = BaseTcpLocalPort + ttl;
-                            if (capture.TryTakeHop(localPort, cycleSentUtc, out string router, out double rttMs))
+                            DateTime sentUtc = _probeSentUtc.TryGetValue(ttl, out DateTime recorded)
+                                ? recorded
+                                : cycleSentUtc;
+
+                            if (capture.TryTakeHop(localPort, sentUtc, out string router, out double rttMs))
                             {
                                 stats.RecordReply(router, rttMs, isDestination: false);
                                 identified = true;

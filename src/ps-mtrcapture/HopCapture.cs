@@ -189,7 +189,21 @@ public sealed class HopCapture : IDisposable
                 return;
             }
 
-            _replies[quotedPort] = new HopReply(outerIp.SourceAddress.ToString(), DateTime.UtcNow.Ticks);
+            // Use the timestamp the driver recorded when the packet actually arrived, NOT
+            // DateTime.UtcNow. Npcap delivers packets to this handler in batches, so stamping
+            // here gave every reply in a batch the same time - six different routers all
+            // reporting an identical latency to one decimal place.
+            long arrivalTicks;
+            try
+            {
+                arrivalTicks = raw.Timeval.Date.ToUniversalTime().Ticks;
+            }
+            catch (Exception)
+            {
+                arrivalTicks = DateTime.UtcNow.Ticks;
+            }
+
+            _replies[quotedPort] = new HopReply(outerIp.SourceAddress.ToString(), arrivalTicks);
         }
         catch (Exception)
         {
