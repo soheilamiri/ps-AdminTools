@@ -111,11 +111,7 @@ namespace PSAdminTools.Mtr
                 "Host".PadRight(HostColumnWidth + 4) +
                 "Loss%".PadLeft(6) +
                 "Snt".PadLeft(6) +
-                "Last".PadLeft(7) +
-                "Avg".PadLeft(7) +
-                "Best".PadLeft(7) +
-                "Wrst".PadLeft(7) +
-                "StDev".PadLeft(7);
+                "Last".PadLeft(9);
             plain.Add(columns);
             coloured.Add(columns);
 
@@ -218,23 +214,19 @@ namespace PSAdminTools.Mtr
             string sentCell = hop.Sent.ToString().PadLeft(6);
 
             string lastCell = Metric(hop.IsUnknown ? (double?)null : hop.Last);
-            string avgCell = Metric(hop.IsUnknown ? (double?)null : hop.Average);
-            string bestCell = Metric(hop.IsUnknown ? (double?)null : hop.BestForDisplay);
-            string worstCell = Metric(hop.IsUnknown ? (double?)null : hop.Worst);
-            string stDevCell = Metric(hop.IsUnknown ? (double?)null : hop.StandardDeviation);
 
             string lossColour = loss <= 0d ? AnsiGreen : (loss >= 100d ? AnsiRed : AnsiOrange);
             string colouredHost = hop.IsUnknown ? AnsiDim + hostCell + AnsiReset : hostCell;
 
-            plain = index + hostCell + lossCell + sentCell + lastCell + avgCell + bestCell + worstCell + stDevCell;
+            plain = index + hostCell + lossCell + sentCell + lastCell;
 
             coloured = index + colouredHost + lossColour + lossCell + AnsiReset +
-                       sentCell + lastCell + avgCell + bestCell + worstCell + stDevCell;
+                       sentCell + lastCell;
         }
 
         private static string Metric(double? value)
         {
-            return (value.HasValue ? value.Value.ToString("0.0") : "-").PadLeft(7);
+            return (value.HasValue ? value.Value.ToString("0.0") : "-").PadLeft(9);
         }
 
         private static string Fit(string text, int width)
